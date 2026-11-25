@@ -12,7 +12,8 @@
  A cold boot of CP/M formats the RAM disk unless the word at 0006 is its BDOS (BC06 for REL.5, BA06 for REL.7): the
  check of the real machine that keeps the RAM disk over the reset button. So when the file has data the word is
  written before the CPU starts (as if the power had stayed on), and again on a change of the model (the CPU is reset,
- the other CP/M looks for its own BDOS). A new file (zeros) gets no word: CP/M formats it and it is saved.
+ the other CP/M looks for its own BDOS). With it goes 0004 = 00 (drive A:, user 0): the boot that keeps the disk keeps
+ that byte too, and after another core the SRAM holds anything there (REL.7 then stopped with "Bdos Err On  :"). A new file (zeros) gets no word: CP/M formats it and it is saved.
  The test ROM (model 2) writes all the RAM: no file then (kg_bk_ram held in reset, its writes not saved).
 
  Two masters of the aux port of ocean_sram (ocean_aux): the word (mk_*) and kg_bk_ram (bk_*).
@@ -107,7 +108,7 @@ kg_bk_ram #(.SLOT(3'd0), .IDLE_CLOCKS(CLK_HZ), .MAX_CLOCKS(27'd120000000), .MOUN
 // ---------------------------------------------------------------- the BDOS word at 0006 / 0007
 reg  data_seen = 1'b0;       // the file had a non-zero byte
 reg  bk_busy_d = 1'b0;
-reg  [1:0] mk = 2'd0;        // the word to write: 0 none, 1 the low byte next, 2 the high byte next
+reg  [1:0] mk = 2'd0;        // the bytes to write: 0 none, 1 0004, 2 0006, 3 0007
 wire [7:0] bdos_hi = (model == 2'd1) ? 8'hBA : 8'hBC;
 always @(posedge clk) begin
 	bk_busy_d <= bk_busy;
@@ -118,11 +119,11 @@ always @(posedge clk) begin
 	    (model != model_d && use_disk && mounted && data_seen && started)) mk <= 2'd1;
 	if (mk_ack) begin
 		mk_req <= 1'b0;
-		mk <= (mk == 2'd1) ? 2'd2 : 2'd0;
+		mk <= (mk == 2'd3) ? 2'd0 : mk + 2'd1;
 	end else if (mk != 2'd0 && !mk_req) begin
 		mk_req <= 1'b1;
-		mk_addr <= (mk == 2'd1) ? 22'h000006 : 22'h000007;
-		mk_din <= (mk == 2'd1) ? 8'h06 : bdos_hi;
+		mk_addr <= (mk == 2'd1) ? 22'h000004 : (mk == 2'd2) ? 22'h000006 : 22'h000007;
+		mk_din <= (mk == 2'd1) ? 8'h00 : (mk == 2'd2) ? 8'h06 : bdos_hi;
 	end
 end
 assign hold = bk_busy | bk_busy_d | (mk != 2'd0);   // bk_busy_d: no gap before the word

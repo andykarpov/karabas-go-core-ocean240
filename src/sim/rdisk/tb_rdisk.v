@@ -46,6 +46,7 @@ module tb_rdisk;
 	integer i, writes = 0, errors = 0;
 	initial begin
 		for (i = 0; i < 131072; i = i + 1) mem[i] = 8'h00;
+		mem[4] = 8'h5A;               // whatever another core left there
 		for (i = 0; i < 65536; i = i + 1) img[i] = 8'hE5;
 		img[0] = 8'h00; img[1] = "H"; img[2] = "E"; img[3] = "L"; img[4] = "L"; img[5] = "O";
 	end
@@ -109,6 +110,7 @@ module tb_rdisk;
 		@(posedge clk); while (hold) @(posedge clk);
 		$display("%0t hold ended, mounted %b", $time, mounted);
 		check(17'h10000, 8'h00, "file byte 0"); check(17'h10001, "H", "file byte 1"); check(17'h1FFFF, 8'hE5, "file end");
+		check(17'h00004, 8'h00, "drive byte");
 		check(17'h00006, 8'h06, "BDOS low"); check(17'h00007, 8'hBC, "BDOS 240.2");
 		// 2. a CPU write into page 1, then idle: saved
 		cpu_write(19'h10020, 8'h41);

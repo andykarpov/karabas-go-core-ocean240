@@ -1,7 +1,7 @@
 {
     "id": "ocean240",
     "name": "Ocean-240",
-    "build": "26112504",
+    "build": "26112505",
     "visible": true,
     "type": "osd",
     "order": 45,
@@ -31,7 +31,7 @@
     "boards": {
         "minig": {
             "link": 2,
-            "build": "26112504",
+            "build": "26112505",
             "bitstream": "karabas_minig.bin"
         }
     },
