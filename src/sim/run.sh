@@ -27,6 +27,21 @@ echo "== test ROM"
 	--ms 60 --rxkey 45:20 --expect-tx "TEST 1 PASSED" > "$B/test.txt" || fail "test ROM"
 cat "$B/test.txt"
 
+echo "== test 8 (the 8253 counter 0 -> IR4 -> the 8259 CALL 0020h): test 1 returns to E41F, the delays cut (sim only)"
+"$SIM" --rom0 "$U/Ocean_240_ROM_E000_Tests.bin:4fa=01,522=01,065=1f,066=e4,4e7=01,4e8=00" --ms 400 --rxkey 45:20 \
+	--expect-tx "TEST 8 PASSED" > "$B/test8.txt" || fail "test 8"
+grep PASSED "$B/test8.txt"
+
+if [ -n "${CPM:-}" ]; then
+	echo "== 240/7 monitor + CP/M REL.5 (~40 s): A>, DIR from the keyboard"
+	"$SIM" --rom0 "$U/Ocean_240_ROM_E000_Monitor.bin" --rom1 "$U/Ocean_240_ROM_C000_СPM_without_floppy.bin" --ms 2600 \
+		--kb 1600:44 --kb 1700:49 --kb 1800:52 --kb 1900:0d --vram --frames "$B/cpm" > "$B/cpm.txt" || err=1
+	n=$(sed -n 's/video RAM page 0: \([0-9]*\).*/\1/p' "$B/cpm.txt")
+	[ "$n" -gt 500 ] || fail "CP/M: $n bytes on the screen"
+	f=$(ls "$B"/cpm_*.ppm | sort -t_ -k2 -n | tail -2 | head -1); python3 -I "$H/ppm2png.py" "$f" "$B/cpm.png"
+	echo "CP/M: $n bytes on the screen, $B/cpm.png"
+fi
+
 echo "== video bit order"
 python3 -I "$H/schem/mkrom_vidtest.py" "$B/vidtest.bin"
 "$SIM" --rom0 "$B/vidtest.bin" --ms 65 --frames "$B/vt" > /dev/null || err=1
