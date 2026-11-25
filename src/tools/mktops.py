@@ -12,8 +12,8 @@ Mini (before rev.G): MCU_SCK not on a clock pin (no BUFG), 4 MCU_IO, sigma-delta
 Go: VGA 8:8:8 with V_CLK = the INVERTED pixel clock (the DAC latches on its rising edge, mid-pixel:
   notes go-vclk-phase) instead of HDMI, the FT812 off the video bus (FT_OE_N = 1), the MCU link on
   MCU_SPI_*, DAC_LRCK / DAC_MUTE, the floppy connector unused (its outputs 0: the board inverts
-  them), no FT_CLK_OUT, no ADC.
-Both: the SAM2695 synth is not used (reset off, no clock: as core-specialist). GPL-3 (LICENSE).
+  them), no FT_CLK_OUT, no ADC (PCM1808).
+Both: the SAM2695 synth is not used (reset off, no clock: as core-vector06c). GPL-3 (LICENSE).
 """
 import os
 import sys
@@ -44,7 +44,7 @@ def ports(s, board):
     return s[:a] + body.rstrip("\n") + "\n" + s[b:]
 
 
-HEADER_G = " Vector-06C core for Karabas Mini rev.G (HDMI, PCM5102). The board glue of core-specialist.\n"
+HEADER_G = " Ocean-240.2 core for Karabas Mini rev.G (HDMI, PCM5102, PCM1808). The board glue of core-vector06c.\n"
 
 MCU_SCK_G = """// MCU_SCK on a global buffer; the FT812 and SD2 get the IBUFG output (a BUFG drives no pad)
 wire mcu_sck_ibufg, mcu_sck;
@@ -68,7 +68,7 @@ PCM = """kg_pcm5102 #(.DIV_BITS(2)) dac (
 
 
 def mini(s):
-    s = sub(s, HEADER_G, " Vector-06C core for Karabas Mini before rev.G (HDMI, sigma-delta audio). Made by tools/mktops.py\n"
+    s = sub(s, HEADER_G, " Ocean-240.2 core for Karabas Mini before rev.G (HDMI, sigma-delta audio, PCM1808). Made by tools/mktops.py\n"
             " from karabas_minig_top.v (do not edit: change that one and run it): the same except the pins,\n"
             " the MCU link (MCU_SCK not on a clock pin), the audio (AUDIO_L / AUDIO_R).\n", "header")
     s = ports(s, "mini")
@@ -84,10 +84,10 @@ def mini(s):
 
 
 def go(s):
-    s = sub(s, HEADER_G, " Vector-06C core for Karabas Go (VGA, PCM5102). Made by tools/mktops.py from karabas_minig_top.v\n"
+    s = sub(s, HEADER_G, " Ocean-240.2 core for Karabas Go (VGA, PCM5102, no ADC). Made by tools/mktops.py from karabas_minig_top.v\n"
             " (do not edit: change that one and run it): the same except the pins, the MCU link (MCU_SCK not\n"
             " on a clock pin) and the video: 24 bit RGB to the VGA DAC, V_CLK the inverted pixel clock, the\n"
-            " FT812 off that bus (FT_OE_N = 1), no HDMI. The floppy connector is not used.\n", "header")
+            " FT812 off that bus (FT_OE_N = 1), no HDMI; no ADC (the line in). The floppy connector is not used.\n", "header")
     s = ports(s, "go")
     s = sub(s, "assign ESP32_SPI_CS_N = 1'b1;\n",
             "assign ESP_RESET_N = 1'bz;\nassign ESP_BOOT_N = 1'bz;\n"
@@ -98,7 +98,8 @@ def go(s):
             "// the floppy connector is not used: its outputs 0 (the board inverts them: high = active)\n"
             "assign FDC_DRIVE = 2'b00;\nassign FDC_MOTOR = 1'b0;\nassign FDC_DIR = 1'b0;\nassign FDC_STEP = 1'b0;\n"
             "assign FDC_WDATA = 1'b0;\nassign FDC_WGATE = 1'b0;\nassign FDC_SIDE_N = 1'b0;\n", "ESP / unused Go")
-    s = sub(s, "assign ADC_CLK = 1'b0;\nassign ADC_BCK = 1'bz;\nassign ADC_LRCK = 1'bz;\n", "", "ADC")
+    s = cut(s, "// the ADC (PCM1808", "reg [15:0] adc_mix_l",
+            "// no ADC (PCM1808) on Go: no line in\nwire [23:0] adc_l = 24'd0, adc_r = 24'd0;\n", "ADC")
     s = sub(s, "ODDR2 oddr_ft_clk (.Q(FT_CLK_OUT), .C0(clk_8), .C1(~clk_8), .CE(1'b1), .D0(1'b1), .D1(1'b0), .R(1'b0), .S(1'b0));\n",
             "// the pixel clock of the VGA DAC, inverted: the DAC latches on the rising V_CLK, mid-pixel (no FT_CLK_OUT\n"
             "// on Go: the FT812 has its crystal)\n"
@@ -113,7 +114,7 @@ def go(s):
     s = cut(s, "// the HDMI audio:", "endmodule",
             """// ------------------------------------------------------------------ VGA
 
-// the 576p of v06c_scan2x (negative syncs already), black outside de (the DAC has no blank input);
+// the 640 x 576 (768 x 640 total, 50 Hz) of ocean_scan2x (negative syncs already), black outside de (the DAC has no blank input);
 // registered on clk_pix (IOB flip-flops)
 reg vga_hs = 1'b1, vga_vs = 1'b1;
 reg [23:0] vga_rgb = 24'd0;
@@ -142,7 +143,7 @@ def ucf(board):
     timing = g[g.index(MARK):]
     timing = sub(timing, "karabas_minig_top.v", "karabas_%s_top.v" % board, "ucf top")
     if board == "go":
-        timing = sub(timing, "#   pll_clk<2>, <3> 120 MHz, 0 / 180: the HDMI serialiser;  pll_clk<4> 8 MHz: FT_CLK_OUT\n",
+        timing = sub(timing, "#   pll_clk<2>, <3> 123 MHz, 0 / 180: the HDMI serialiser;  pll_clk<4> 8 MHz: FT_CLK_OUT\n",
                      "#   pll_clk<2>, <3>, <4>: not used on Go (no HDMI, no FT_CLK_OUT); V_CLK = ~clk_pix (an ODDR2)\n",
                      "ucf go clocks")
         a = timing.index("# the HDMI encoder runs on clk_pix")
