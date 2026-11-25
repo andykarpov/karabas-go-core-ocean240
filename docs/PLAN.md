@@ -90,6 +90,8 @@
 - Верхи Go / Mini (`mktops.py` из Mini G: Go — VGA, V_CLK инвертированный; Mini — сигма-дельта), сборка трёх плат, `ocean240.kg` (build `YYMMDDNN`), README.md + README.ru.md (модели, клавиши, файлы, где брать ПО, лицензии).
 - Репо публичным (спросить), строка в `cores.json` karabas-go + Sources.
 
+**Ход Ф3 (2026-11-25, ветка `f3`):** верхи Go / Mini из Mini G (`src/tools/mktops.py`: Go — VGA 640 × 576 из 768 × 640, V_CLK инвертированный, без АЦП; Mini — сигма-дельта), сборка 26112506 Go / Mini (Mini G остаётся 26112505): Go 26 % LUT, Mini 37 %, тайминги сошлись; на платах не запускались. README.md + README.ru.md. Sim `run.sh` — 45 с, всё ок.
+
 ### Ф4. Дисковод (после v1)
 - ВГ93 в 20–23, 24 / 25 — ожидание / управление (по РТ4 контроллера дисковода и Turbo monitor), `wd1793` + кэш, `F` Disk A / B, формат образов Океана (alemorf `decode_ocean_floppy`, Emu80), пресет «240 Turbo / FDD», CP/M с дисковода.
 - Физический дисковод Go — в бэклог.
