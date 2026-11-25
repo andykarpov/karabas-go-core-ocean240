@@ -4,7 +4,11 @@
 //   --ms N               run time
 //   --frames PREFIX      PREFIX_N.ppm: 768 x 320 of the raster as the schematic model writes them (src/sim/schem)
 //   --rxkey MS:XX        a byte to the RS-232 input at MS
-//   --kb MS:XX           a key of the 240/7 keyboard (7-bit code) at MS
+//   --type MS:TEXT       keys from MS on (PS/2 scancodes into ocean_kbd, a key every 100 ms; letters, digits, space;
+//                        '\\n' or '|' = Enter)
+//   --model N            0 240.2, 1 Turbo, 2 test (the ROMs still from --rom0 / --rom1)
+//   --mpss               the colours of MPSS
+//   --frame2x PREFIX     PREFIX_N.ppm: the HDMI frames of ocean_scan2x (640 x 576, de)
 //   --expect-tx TEXT     fail unless the terminal output has TEXT
 //   --peek ADDR          print the SRAM byte at the end (hex address)
 //   --iotrace N          print the first N port accesses (OUT always, IN except the polls of 41 / 80 / A1)
@@ -18,6 +22,21 @@
 #include <vector>
 
 static const double CLK_HZ = 49152000.0;
+
+// PS/2 set 2 scancodes of the keys --type knows
+static int scancode(char c) {
+	const char *L = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+	static const int SL[26] = {0x1C,0x32,0x21,0x23,0x24,0x2B,0x34,0x33,0x43,0x3B,0x42,0x4B,0x3A,0x31,0x44,0x4D,0x15,0x2D,0x1B,0x2C,0x3C,0x2A,0x1D,0x22,0x35,0x1A};
+	static const int SD[10] = {0x45,0x16,0x1E,0x26,0x25,0x2E,0x36,0x3D,0x3E,0x46};
+	if (c >= 'a' && c <= 'z') c -= 32;
+	const char *p = strchr(L, c);
+	if (c && p) return SL[p - L];
+	if (c >= '0' && c <= '9') return SD[c - '0'];
+	if (c == ' ') return 0x29;
+	if (c == '|' || c == '\n') return 0x5A;
+	if (c == '.') return 0x49;
+	return -1;
+}
 
 struct Ev { long long t; int b; };
 
@@ -53,7 +72,8 @@ int main(int argc, char **argv) {
 	double ms = 20;
 	std::vector<Ev> rx, kb;
 	std::vector<long> peeks;
-	int iotrace = 0, vram = 0;
+	int iotrace = 0, vram = 0, model = 0, mpss = 0;
+	const char *frame2x = 0;
 	for (int i = 1; i < argc; i++) {
 		std::string a(argv[i]);
 		if (a == "--rom0") rom0 = argv[++i];
@@ -64,14 +84,28 @@ int main(int argc, char **argv) {
 		else if (a == "--peek") peeks.push_back(strtol(argv[++i], 0, 16));
 		else if (a == "--iotrace") iotrace = atoi(argv[++i]);
 		else if (a == "--vram") vram = 1;
-		else if (a == "--rxkey" || a == "--kb") {
+		else if (a == "--rxkey") {
 			const char *v = argv[++i];
 			Ev e; e.t = (long long)(atof(v) * CLK_HZ / 1000.0); e.b = (int)strtol(strchr(v, ':') + 1, 0, 16);
-			(a == "--rxkey" ? rx : kb).push_back(e);
+			rx.push_back(e);
 		}
+		else if (a == "--type") {
+			const char *v = argv[++i];
+			double t0 = atof(v);
+			const char *txt = strchr(v, ':') + 1;
+			for (int j = 0; txt[j]; j++) {
+				int sc = scancode(txt[j]);
+				if (sc < 0) { fprintf(stderr, "no key for '%c'\n", txt[j]); exit(2); }
+				long long t = (long long)((t0 + 100.0 * j) * CLK_HZ / 1000.0);
+				kb.push_back({t, sc}); kb.push_back({t + 20000, 0xF0}); kb.push_back({t + 40000, sc});
+			}
+		}
+		else if (a == "--model") model = atoi(argv[++i]);
+		else if (a == "--mpss") mpss = 1;
+		else if (a == "--frame2x") frame2x = argv[++i];
 	}
-	// preload the SRAM: ROM0 at 080000, ROM1 at 088000 (32 KB each, the image repeated)
-	t->reset = 1; t->rxd = 1; t->kb_strobe = 0; t->kb_code = 0; t->pl_we = 0;
+	// preload the SRAM: ROM0 / ROM1 into the images the model takes (ocean_system: 080000 + 2000 * image), 8 KB each
+	t->reset = 1; t->rxd = 1; t->ps2_wr = 0; t->ps2_code = 0; t->pl_we = 0; t->model = model; t->colour_mpss = mpss;
 	auto tick = [&]() { t->clk = 0; t->eval(); t->clk = 1; t->eval(); };
 	for (int r = 0; r < 2; r++) {
 		const char *spec = r ? rom1 : rom0;
@@ -79,8 +113,9 @@ int main(int argc, char **argv) {
 		std::vector<std::pair<int, int>> patches;
 		std::vector<unsigned char> d = load(spec, patches);
 		for (auto &p : patches) d[p.first] = p.second;
-		for (int a = 0; a < 32768; a++) {
-			t->pl_we = 1; t->pl_addr = 0x080000 + r * 0x8000 + a; t->pl_data = d[a % d.size()];
+		for (int a = 0; a < 8192; a++) {
+			static const int img[3][2] = {{0, 1}, {2, 3}, {4, 1}};   // the images of each model (ocean_system)
+			t->pl_we = 1; t->pl_addr = 0x080000 + img[model % 3][r] * 0x2000 + a; t->pl_data = d[a % d.size()];
 			tick();
 		}
 	}
@@ -98,6 +133,7 @@ int main(int argc, char **argv) {
 	// frames
 	FILE *fd = 0; int nfr = 0, x = 0, y = 0, last_vs = 0, last_hs = 0;
 	int last_iow = 0, last_ior = 0;
+	FILE *f2 = 0; int n2 = 0, n2px = 0, last_ovs = 1;
 	for (long long c = 0; c < total; c++) {
 		tick();
 		// RS-232 to the machine
@@ -109,9 +145,22 @@ int main(int argc, char **argv) {
 			else t->rxd = 1;
 			if (k >= 11) { tx_start = -1; printf("\n[sim] sent %02x at %.1f ms\n", tx_byte, rx[rx_i].t * 1000.0 / CLK_HZ); rx_i++; }
 		}
-		// the keyboard of the 240/7 monitor
-		t->kb_strobe = 0;
-		if (kb_i < kb.size() && c >= kb[kb_i].t) { t->kb_code = kb[kb_i].b & 0x7F; t->kb_strobe = 1; kb_i++; }
+		// the PS/2 bytes into ocean_kbd
+		t->ps2_wr = 0;
+		if (kb_i < kb.size() && c >= kb[kb_i].t) { t->ps2_code = kb[kb_i].b; t->ps2_wr = 1; kb_i++; }
+		// the HDMI frames of ocean_scan2x: a file per falling vs, the de pixels
+		if (frame2x && t->o_ce) {
+			if (!t->o_vs && last_ovs) {
+				if (f2) fclose(f2);
+				char fn[512]; snprintf(fn, sizeof fn, "%s_%d.ppm", frame2x, n2++);
+				f2 = fopen(fn, "wb"); fprintf(f2, "P6\n640 576\n255\n"); n2px = 0;
+			}
+			if (t->o_de && f2 && n2px < 640 * 576) {
+				unsigned char px[3] = {(unsigned char)(t->o_rgb >> 16), (unsigned char)(t->o_rgb >> 8), (unsigned char)t->o_rgb};
+				fwrite(px, 1, 3, f2); n2px++;
+			}
+			last_ovs = t->o_vs;
+		}
 		// RS-232 from the machine
 		int txd = t->txd;
 		if (rx_state < 0) { if (last_txd && !txd) { rx_state = 0; rx_t = c + BIT + BIT / 2; rx_byte = 0; } }
@@ -149,6 +198,7 @@ int main(int argc, char **argv) {
 		}
 	}
 	if (fd) fclose(fd);
+	if (f2) fclose(f2);
 	printf("\n[sim] %.1f ms, PC %04x, C1 %02x\n", ms, t->cpu_addr, t->dbg_c1);
 	if (vram) for (int pg = 0; pg < 2; pg++) {
 		int nz = 0;
