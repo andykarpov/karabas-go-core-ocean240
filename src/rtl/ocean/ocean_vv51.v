@@ -23,7 +23,14 @@ module ocean_vv51 (
 	input  wire       rxc,
 	output reg        txd = 1'b1,
 	input  wire       rxd,
-	output wire       rxrdy
+	output wire       rxrdy,
+	// the bytes of the data register for a byte port (the USB-UART of the mcu): a byte that goes into the
+	// transmitter, a byte that comes into the receiver buffer as if received
+	output reg        tx_wr = 1'b0,
+	output reg  [7:0] tx_data = 8'd0,
+	input  wire       rx_wr,
+	input  wire [7:0] rx_data,
+	output wire       rx_ready
 );
 
 reg [7:0] mode = 8'd0, cmd = 8'd0;
@@ -59,6 +66,8 @@ always @(posedge clk) begin
 	txc_d <= txc;
 	rxc_d <= rxc;
 	rxd_s <= {rxd_s[0], rxd};
+	tx_wr <= 1'b0;
+	if (rx_wr & cmd[2]) begin rxbuf <= rx_data; rxfull <= 1'b1; end
 	if (reset) begin
 		mode_next <= 1'b1; cmd <= 8'd0; txfull <= 1'b0; rxfull <= 1'b0; tbusy <= 1'b0; rbusy <= 1'b0; txd <= 1'b1;
 	end else begin
@@ -82,6 +91,8 @@ always @(posedge clk) begin
 			if (!tbusy) begin
 				if (txfull & cmd[0]) begin
 					txfull <= 1'b0;
+					tx_wr <= 1'b1;
+					tx_data <= txbuf;
 					tsh <= {2'b11, txbuf} | (10'h3FF << nbits);   // the data, then stop bits (1)
 					tbusy <= 1'b1;
 					tbits <= nbits + 4'd1;
@@ -122,6 +133,7 @@ end
 
 wire txe = ~txfull & ~tbusy;
 assign rxrdy = rxfull & cmd[2];
+assign rx_ready = ~rxfull;
 always @(*) dout = cd ? {1'b1, 4'd0, txe, rxrdy, ~txfull} : rxbuf;
 
 endmodule

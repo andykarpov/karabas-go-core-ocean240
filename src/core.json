@@ -1,0 +1,77 @@
+{
+    "id": "ocean240",
+    "name": "Ocean-240",
+    "build": "26112503",
+    "visible": true,
+    "type": "osd",
+    "order": 45,
+    "eeprom_bank": 255,
+    "roms": [
+        {
+            "filename": "roms/mon240_7.rom",
+            "address": 524288
+        },
+        {
+            "filename": "roms/cpm_rel5.rom",
+            "address": 532480
+        },
+        {
+            "filename": "roms/monplus.rom",
+            "address": 540672
+        },
+        {
+            "filename": "roms/cpm_rel7.rom",
+            "address": 548864
+        },
+        {
+            "filename": "roms/tests.rom",
+            "address": 557056
+        }
+    ],
+    "boards": {
+        "minig": {
+            "link": 2,
+            "build": "26112503",
+            "bitstream": "karabas_minig.bin"
+        }
+    },
+    "osd": [
+        {
+            "type": "S",
+            "name": "Model",
+            "options": [
+                "240.2",
+                "Turbo",
+                "Test"
+            ],
+            "default": 0,
+            "hotkey": "Menu+M"
+        },
+        {
+            "type": "S",
+            "name": "Colours",
+            "options": [
+                "Replica",
+                "MPSS"
+            ],
+            "default": 0
+        },
+        {
+            "type": "S",
+            "name": "Tape monitor",
+            "options": [
+                "Off",
+                "In",
+                "Out",
+                "Both"
+            ],
+            "default": 0,
+            "hotkey": "Menu+T"
+        },
+        {
+            "type": "T",
+            "name": "Reset",
+            "hotkey": "F12"
+        }
+    ]
+}

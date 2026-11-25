@@ -29,12 +29,23 @@ module ocean_system (
 	output wire        aux_ack,
 	output wire  [7:0] aux_dout,
 
-	// the keyboard of the 240/7 monitor: a 7-bit code with a strobe (IR1) until the ack (a PC7 pulse)
-	input  wire  [6:0] kb_code,
+	input  wire  [1:0] model,          // 0 240.2 (240/7 + CP/M REL.5), 1 Turbo (MONITOR+ + CP/M REL.7), 2 the test ROM
+
+	// the keyboard controller (ocean_kbd): the code on PA (and the row on PC0-PC3) with a strobe (IR1) held until
+	// the ack (a rising PC7: the 240/7 monitor, or PC4: MONITOR+); Ctrl / Shift of the positional one on PB5 / PB6
 	input  wire        kb_strobe,      // a pulse: a key
-	// the RS-232 of the 8251
+	input  wire  [7:0] kb_pa,
+	input  wire  [3:0] kb_pc,
+	input  wire  [1:0] kb_mods,        // {Shift, Ctrl}
+	// the RS-232 of the 8251: the line (sim) and the bytes of its data register (the USB-UART of the mcu)
 	input  wire        rxd,
 	output wire        txd,
+	output wire        uart_tx_wr,     // a pulse: a byte sent
+	output wire  [7:0] uart_tx_data,
+	input  wire        uart_rx_wr,     // a pulse: a byte received (into RxRDY)
+	input  wire  [7:0] uart_rx_data,
+	output wire        uart_rx_ready,  // no byte waits in the receiver
+	output wire        tape_out,       // E2 C2 (the monitors write 03 / 04)
 	input  wire        tape_in,        // PB2 of DD78
 	output wire  [2:0] tape_dac,       // E2 C0-C2
 	output wire        bell,           // E2 C3
@@ -139,20 +150,23 @@ wire gc, gk;                         // the blanks (DD78 PB0 / PB1)
 k580vv55 dd79 (.reset(cpu_reset), .clk_sys(clk), .addr(addr[1:0]), .we_n(~(io_wr & sel00)), .idata(cpu_o), .odata(p00_o),
 	.ipa(8'hFF), .opa(), .ipb(8'hFF), .opb(), .ipc(8'hFF), .opc());
 
-// the keyboard of the 240/7 monitor: the code waits on PA with IR1 high until the ack
-reg  [6:0] kb_q = 7'd0;
+// the keyboard: the code waits on PA (and PC0-PC3) with IR1 high until the ack
+reg  [7:0] kb_q = 8'd0;
+reg  [3:0] kb_row = 4'd0;
 reg        kb_irq = 1'b0;
-reg        kpc7_d = 1'b0;
+reg  [1:0] kack_d = 2'b00;
 always @(posedge clk) begin
-	kpc7_d <= k_pc[7];
+	kack_d <= {k_pc[7], k_pc[4]};
 	if (cpu_reset) kb_irq <= 1'b0;
-	else if (kb_strobe) begin kb_q <= kb_code; kb_irq <= 1'b1; end
-	else if (k_pc[7] & ~kpc7_d) kb_irq <= 1'b0;
+	else if (kb_strobe) begin kb_q <= kb_pa; kb_row <= kb_pc; kb_irq <= 1'b1; end
+	else if ((k_pc[7] & ~kack_d[1]) | (k_pc[4] & ~kack_d[0])) kb_irq <= 1'b0;
 end
+// PB: B0 GC, B1 GK, B2 the tape, B3 a tape signal (1 = there), B4 the printer ack, B5 / B6 Ctrl / Shift
+// (JST1 / JST2 of X2, the positional keyboard), B7 JST3
 k580vv55 dd78 (.reset(cpu_reset), .clk_sys(clk), .addr(addr[1:0]), .we_n(~(io_wr & sel40)), .idata(cpu_o), .odata(p40_o),
-	.ipa({1'b0, kb_q}), .opa(),
-	.ipb({3'b111, 1'b1, 1'b1, tape_in, gk, gc}), .opb(),
-	.ipc(8'hFF), .opc(k_pc));
+	.ipa(kb_q), .opa(),
+	.ipb({1'b0, kb_mods[1], kb_mods[0], 1'b1, 1'b1, tape_in, gk, gc}), .opb(),
+	.ipc({4'hF, kb_row}), .opc(k_pc));
 
 k580vv55 dd17 (.reset(cpu_reset), .clk_sys(clk), .addr(addr[1:0]), .we_n(~(io_wr & selC0)), .idata(cpu_o), .odata(pC0_o),
 	.ipa(8'hFF), .opa(c1_pa), .ipb(8'hFF), .opb(c1_pb), .ipc(8'hFF), .opc(c1_pc));
@@ -160,6 +174,7 @@ k580vv55 dd67 (.reset(cpu_reset), .clk_sys(clk), .addr(addr[1:0]), .we_n(~(io_wr
 	.ipa(8'hFF), .opa(e1_pa), .ipb(8'hFF), .opb(e1_pb), .ipc(8'hFF), .opc(e1_pc));
 assign dbg_c1 = c1_pb;
 assign tape_dac = e1_pc[2:0];
+assign tape_out = e1_pc[2];
 assign bell = e1_pc[3];
 
 // 8253: CLK0 = CLK1 = 1.536 MHz, gates 0 / 1 high; counter 2 is the user's (GATE2 = ~TIM_EN = 0 on the board)
@@ -172,7 +187,8 @@ k580vi53 dd70 (.reset(cpu_reset), .clk_sys(clk), .addr(addr[1:0]), .din(cpu_o), 
 wire [7:0] uart_o;
 wire       rxrdy;
 ocean_vv51 dd72 (.clk(clk), .reset(cpu_reset), .cs(selA0), .cd(addr[0]), .wr(io_wr), .rd(io_rd), .din(cpu_o), .dout(uart_o),
-	.txc(pit_out[1]), .rxc(pit_out[1]), .txd(txd), .rxd(rxd), .rxrdy(rxrdy));
+	.txc(pit_out[1]), .rxc(pit_out[1]), .txd(txd), .rxd(rxd), .rxrdy(rxrdy),
+	.tx_wr(uart_tx_wr), .tx_data(uart_tx_data), .rx_wr(uart_rx_wr), .rx_data(uart_rx_data), .rx_ready(uart_rx_ready));
 
 // 8259 (MCS-80: the CALL and its address in three INTA cycles)
 wire [7:0] pic_o;
@@ -205,13 +221,21 @@ wire b_32k = c1_pb[0];
 wire [2:0] b_page = c1_pb[3:1];
 wire enrom_n = c1_pb[4];
 wire rest = c1_pb[5];
-wire [1:0] rom_bank = c1_pb[7:6];
 wire rom0_sel = rest | (~enrom_n & (addr[15:13] == 3'b111));
 wire rom1_sel = ~rest & ~enrom_n & (addr[15:13] == 3'b110);
 wire rom_sel = rom0_sel | rom1_sel;
 wire [18:0] ram_a = {b_page, addr[15] | b_32k, addr[14:0]};
-// 080000 + rom1 * 8000 + bank * 2000 + a
-wire [21:0] rom_a = 22'h080000 | {6'd0, rom1_sel, 15'd0} | {7'd0, rom_bank, addr[12:0]};
+// the ROM images of the core file (8 KB each, the banks of C1 B6 / B7 see the same image): 080000 240/7, 082000
+// CP/M REL.5, 084000 MONITOR+, 086000 CP/M REL.7, 088000 the test ROM; the model takes ROM0 / ROM1 of them
+reg [2:0] rom0_img, rom1_img;
+always @(*) begin
+	case (model)
+		2'd1: begin rom0_img = 3'd2; rom1_img = 3'd3; end
+		2'd2: begin rom0_img = 3'd4; rom1_img = 3'd1; end
+		default: begin rom0_img = 3'd0; rom1_img = 3'd1; end
+	endcase
+end
+wire [21:0] rom_a = {3'b001, 3'b000, rom1_sel ? rom1_img : rom0_img, addr[12:0]};   // 080000 + image * 2000
 wire [21:0] sram_a = rom_sel ? rom_a : {3'b000, ram_a};
 wire        ram_we = mem_wr & ~rom_sel;
 wire  [7:0] ram_o;
