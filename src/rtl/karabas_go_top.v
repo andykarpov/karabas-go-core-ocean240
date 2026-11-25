@@ -461,7 +461,7 @@ wire tape_in_r = tape_playing ? tape_bit : tape_pin;   // the .wav while it play
 
 wire [9:0] hc;
 wire [8:0] vc;
-wire [2:0] rgb;
+wire [2:0] rgb_pt, rgb_bg;
 wire ce_pix, bell, tape_out;
 
 ocean_system sys (
@@ -475,7 +475,7 @@ ocean_system sys (
 	.tape_out(tape_out), .tape_in(tape_in_r), .tape_dac(), .bell(bell),
 	.fdc_cs(fdc_cs), .fdc_a(fdc_a), .fdc_din(fdc_din), .fdc_rd(fdc_rd), .fdc_wr(fdc_wr), .fdc_in24(fdc_in24),
 	.fdc_ce(fdc_ce), .fdc_reset(fdc_reset), .fdc_dout(fdc_dout), .fdc_ready(fdc_ready),
-	.ce_pix(ce_pix), .rgb(rgb), .blank(), .hsync(), .vsync(), .hc(hc), .vc(vc),
+	.ce_pix(ce_pix), .rgb(), .rgb_pt(rgb_pt), .rgb_bg(rgb_bg), .blank(), .hsync(), .vsync(), .hc(hc), .vc(vc),
 	.running(), .cpu_addr(), .dbg_io_wr(), .dbg_io_rd(), .dbg_dout(), .dbg_din(), .dbg_m1(), .dbg_c1(),
 	.ram_wr(ram_wr), .ram_wr_a(ram_wr_a),
 	.MA(MA), .MD(MD), .MWR_N(MWR_N)
@@ -487,7 +487,7 @@ assign TAPE_OUT = tape_out;
 wire [23:0] s2_rgb;
 wire s2_hs, s2_vs, s2_de;
 ocean_scan2x s2x (
-	.clk(clk_sys), .ce_pix(ce_pix), .hc(hc), .vc(vc), .rgb_i(rgb), .colour_mpss(sw_mpss),
+	.clk(clk_sys), .ce_pix(ce_pix), .hc(hc), .vc(vc), .pt_i(rgb_pt), .bg_i(rgb_bg), .colour_mpss(sw_mpss),
 	.rgb(s2_rgb), .hs(s2_hs), .vs(s2_vs), .de(s2_de)
 );
 

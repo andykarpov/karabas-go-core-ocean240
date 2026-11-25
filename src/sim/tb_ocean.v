@@ -62,6 +62,7 @@ module tb_ocean (
 	output wire        fdd_motor
 );
 
+wire [2:0] rgb_pt, rgb_bg;
 wire [20:0] MA;
 wire [15:0] MD;
 wire [1:0] MWR_N;
@@ -74,7 +75,7 @@ ocean_system sys (
 	.tape_out(tape_out), .tape_in(tape_bit), .tape_dac(), .bell(bell),
 	.fdc_cs(fdc_cs), .fdc_a(fdc_a), .fdc_din(fdc_din), .fdc_rd(fdc_rd), .fdc_wr(fdc_wr), .fdc_in24(fdc_in24),
 	.fdc_ce(fdc_ce), .fdc_reset(fdc_reset), .fdc_dout(fdc_dout), .fdc_ready(fdc_ready),
-	.ce_pix(ce_pix), .rgb(rgb), .blank(blank), .hsync(hsync), .vsync(vsync), .hc(), .vc(),
+	.ce_pix(ce_pix), .rgb(rgb), .rgb_pt(rgb_pt), .rgb_bg(rgb_bg), .blank(blank), .hsync(hsync), .vsync(vsync), .hc(), .vc(),
 	.running(running), .cpu_addr(cpu_addr), .dbg_io_wr(dbg_io_wr), .dbg_io_rd(dbg_io_rd),
 	.dbg_dout(dbg_dout), .dbg_din(dbg_din), .dbg_m1(dbg_m1), .dbg_c1(dbg_c1),
 	.MA(MA), .MD(MD), .MWR_N(MWR_N)
@@ -128,7 +129,7 @@ wire [9:0] hc;
 wire [8:0] vc;
 assign hc = sys.video.hc;
 assign vc = sys.video.vc;
-ocean_scan2x s2x (.clk(clk), .ce_pix(ce_pix), .hc(hc), .vc(vc), .rgb_i(rgb), .colour_mpss(colour_mpss),
+ocean_scan2x s2x (.clk(clk), .ce_pix(ce_pix), .hc(hc), .vc(vc), .pt_i(rgb_pt), .bg_i(rgb_bg), .colour_mpss(colour_mpss),
 	.rgb(o_rgb), .hs(o_hs), .vs(o_vs), .de(o_de));
 // the clocks where the outputs of s2x change (every second clock, as clk_pix of the top takes them)
 reg o_ph = 1'b0;

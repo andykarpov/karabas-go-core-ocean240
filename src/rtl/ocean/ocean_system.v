@@ -64,7 +64,9 @@ module ocean_system (
 
 	// the raster of the machine (768 x 320 points of 12.288 MHz)
 	output wire        ce_pix,
-	output wire  [2:0] rgb,            // R, G, B
+	output wire  [2:0] rgb,            // R, G, B (the PROM or the background: as the schematic model shows them)
+	output wire  [2:0] rgb_pt,         // the PROM part (full level)
+	output wire  [2:0] rgb_bg,         // the background part (a dim level on the screen)
 	output wire        blank,          // ~BLNK
 	output wire        hsync,          // active high
 	output wire        vsync,          // active high
@@ -305,7 +307,7 @@ wire  [7:0] vw_d = vram_aux ? aux_din : cpu_o;
 ocean_video video (
 	.clk(clk), .vs_reg(c1_pa), .hs_reg(c1_pc), .vctl(e1_pb),
 	.vw(vw), .vw_page(vw_p), .vw_addr(vw_a), .vw_data(vw_d),
-	.ce_pix(ce_pix), .rgb(rgb), .blank(blank), .hsync(hsync), .vsync(vsync), .gc(gc), .gk(gk), .hc(hc), .vc(vc)
+	.ce_pix(ce_pix), .rgb(rgb), .pt(rgb_pt), .bg(rgb_bg), .blank(blank), .hsync(hsync), .vsync(vsync), .gc(gc), .gk(gk), .hc(hc), .vc(vc)
 );
 
 endmodule
