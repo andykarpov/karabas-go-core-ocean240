@@ -16,6 +16,8 @@
 //   --poke ADDR:XX       a byte into the SRAM before the start
 //   --wav-in MS:FILE     a .wav as the FL item of the tape (slot 6) at MS, a byte every 400 clocks; it plays at its end
 //   --wav-out FILE       the tape line out (TAPE_OUT) as a .wav, 8 bits, 48 kHz
+//   --fdd N:FILE         a floppy image (.okd) in drive N (0 / 1: the F item of slot 4 / 5), mounted at 1 ms
+//   --fdd-out N:FILE     the image of drive N at the end (with the writes of the machine)
 //   --vram               at the end: the non-zero bytes of the video RAM (C000-FFFF of pages 0 / 1)
 #include "Vtb_ocean.h"
 #include "verilated.h"
@@ -39,6 +41,7 @@ static int scancode(char c) {
 	if (c == ' ') return 0x29;
 	if (c == '|' || c == '\n') return 0x5A;
 	if (c == '.') return 0x49;
+	if (c == ':') return 0x52;     // the ' key: ':' on the positional keyboard (MONITOR+)
 	return -1;
 }
 
@@ -71,6 +74,8 @@ static std::vector<unsigned char> load(const char *spec, std::vector<std::pair<i
 
 int main(int argc, char **argv) {
 	Verilated::commandArgs(argc, argv);
+	std::vector<unsigned char> fdd[2];
+	const char *fdd_out[2] = {0, 0};
 	Vtb_ocean *t = new Vtb_ocean;
 	const char *rom0 = 0, *rom1 = 0, *frames = 0, *expect = 0;
 	double ms = 20;
@@ -130,10 +135,23 @@ int main(int argc, char **argv) {
 			}
 		}
 		else if (a == "--mpss") mpss = 1;
+		else if (a == "--fdd" || a == "--fdd-out") {
+			const char *v = argv[++i];
+			int n = atoi(v) & 1; const char *f = strchr(v, ':') + 1;
+			if (a == "--fdd-out") fdd_out[n] = f;
+			else {
+				FILE *ff = fopen(f, "rb"); if (!ff) { fprintf(stderr, "no %s\n", f); return 1; }
+				fseek(ff, 0, SEEK_END); fdd[n].resize(ftell(ff)); fseek(ff, 0, SEEK_SET);
+				if (fread(fdd[n].data(), 1, fdd[n].size(), ff) != fdd[n].size()) return 1;
+				fclose(ff);
+			}
+		}
 		else if (a == "--frame2x") frame2x = argv[++i];
 	}
 	// preload the SRAM: ROM0 / ROM1 into the images the model takes (ocean_system: 080000 + 2000 * image), 8 KB each
 	t->file_active = 0; t->file_wr = 0;
+	t->sdc_img_mounted = 0; t->sdc_img_size = 0; t->sdc_busy = 0; t->sdc_done = 0; t->sdc_slot = 0;
+	t->sdc_byte_in_strobe = 0; t->sdc_byte_addr = 0; t->sdc_byte_in_data = 0; t->img_wp = 0;
 	t->reset = 1; t->rxd = 1; t->ps2_wr = 0; t->ps2_code = 0; t->pl_we = 0; t->model = model; t->colour_mpss = mpss;
 	auto tick = [&]() { t->clk = 0; t->eval(); t->clk = 1; t->eval(); };
 	for (int r = 0; r < 2; r++) {
@@ -164,8 +182,37 @@ int main(int argc, char **argv) {
 	FILE *fd = 0; int nfr = 0, x = 0, y = 0, last_vs = 0, last_hs = 0;
 	int last_iow = 0, last_ior = 0;
 	FILE *f2 = 0; int n2 = 0, n2px = 0, last_ovs = 1;
+	// the mounter of kg_mcu2 (kg_l2_img as the sdc_* side sees it): one request at a time, the lowest slot first,
+	// a sector some 0.2 ms after the request; a read streams 512 bytes, a write takes sdc_byte_out_data two clocks
+	// after sdc_byte_addr
+	int m_st = 0, m_slot = 0, m_pos = 0, m_wr = 0; long long m_t = 0; unsigned m_lba = 0;
+	int fdd_reads = 0, fdd_writes = 0;
 	for (long long c = 0; c < total; c++) {
 		tick();
+		t->sdc_img_mounted = 0; t->sdc_done = 0; t->sdc_byte_in_strobe = 0;
+		for (int n = 0; n < 2; n++) if (c == CLK_HZ / 1000 + n && fdd[n].size()) {
+			t->sdc_img_mounted = 1 << (4 + n); t->sdc_img_size = fdd[n].size();
+		}
+		if (m_st == 0) {
+			int req = (t->sdc_rd | t->sdc_wr) & 0x30;
+			if (req) {
+				m_slot = (req & 0x10) ? 4 : 5; m_wr = (t->sdc_wr >> m_slot) & 1; m_lba = t->sdc_sector;
+				t->sdc_busy = 1; t->sdc_slot = m_slot; m_st = 1; m_t = c + 10000; m_pos = 0;
+			}
+		} else if (m_st == 1 && c >= m_t) {
+			std::vector<unsigned char> &d = fdd[m_slot - 4];
+			size_t o = (size_t)m_lba * 512 + m_pos;
+			if (!m_wr) {
+				if ((c - m_t) % 4 == 0) {
+					t->sdc_byte_addr = m_pos; t->sdc_byte_in_data = o < d.size() ? d[o] : 0; t->sdc_byte_in_strobe = 1;
+					if (++m_pos == 512) { m_st = 2; fdd_reads++; }
+				}
+			} else {
+				int k = (c - m_t) % 4;
+				if (k == 0) t->sdc_byte_addr = m_pos;
+				if (k == 3) { if (o < d.size()) d[o] = t->sdc_byte_out_data; if (++m_pos == 512) { m_st = 2; fdd_writes++; } }
+			}
+		} else if (m_st == 2) { t->sdc_busy = 0; t->sdc_done = 1; m_st = 0; }
 		// RS-232 to the machine
 		if (rx_i < rx.size() && c >= rx[rx_i].t && tx_start < 0) { tx_start = c; tx_byte = rx[rx_i].b; }
 		if (tx_start >= 0) {
@@ -256,6 +303,10 @@ int main(int argc, char **argv) {
 		printf("[sim] tape out: %u samples\n", n);
 	}
 	printf("\n[sim] %.1f ms, PC %04x, C1 %02x\n", ms, t->cpu_addr, t->dbg_c1);
+	if (fdd[0].size() || fdd[1].size()) printf("[sim] floppy: %d sectors read, %d written\n", fdd_reads, fdd_writes);
+	for (int n = 0; n < 2; n++) if (fdd_out[n]) {
+		FILE *ff = fopen(fdd_out[n], "wb"); fwrite(fdd[n].data(), 1, fdd[n].size(), ff); fclose(ff);
+	}
 	if (vram) for (int pg = 0; pg < 2; pg++) {
 		int nz = 0;
 		for (long a = 0xC000; a < 0x10000; a++) { t->dbg_addr = pg * 0x10000 + a; t->eval(); if (t->dbg_q) nz++; }

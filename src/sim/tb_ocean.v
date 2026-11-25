@@ -44,7 +44,22 @@ module tb_ocean (
 	// the SRAM preload of the C++ side: a byte at a time, before the reset ends
 	input  wire        pl_we,
 	input  wire [21:0] pl_addr,
-	input  wire  [7:0] pl_data
+	input  wire  [7:0] pl_data,
+	// the mounter of kg_mcu2 (sdc_* of kg_l2_img) for the floppy images, slots 4 / 5 (the model in sim_ocean.cpp)
+	input  wire  [7:0] sdc_img_mounted,
+	input  wire [63:0] sdc_img_size,
+	output wire  [7:0] sdc_rd,
+	output wire  [7:0] sdc_wr,
+	output wire [31:0] sdc_sector,
+	input  wire        sdc_busy,
+	input  wire        sdc_done,
+	input  wire  [2:0] sdc_slot,
+	input  wire        sdc_byte_in_strobe,
+	input  wire  [8:0] sdc_byte_addr,
+	input  wire  [7:0] sdc_byte_in_data,
+	output wire  [7:0] sdc_byte_out_data,
+	input  wire  [7:0] img_wp,
+	output wire        fdd_motor
 );
 
 wire [20:0] MA;
@@ -57,6 +72,8 @@ ocean_system sys (
 	.model(model), .kb_strobe(kb_strobe), .kb_pa(kb_pa), .kb_pc(kb_pc), .kb_mods(kb_mods),
 	.rxd(rxd), .txd(txd), .uart_tx_wr(), .uart_tx_data(), .uart_rx_wr(1'b0), .uart_rx_data(8'd0), .uart_rx_ready(),
 	.tape_out(tape_out), .tape_in(tape_bit), .tape_dac(), .bell(bell),
+	.fdc_cs(fdc_cs), .fdc_a(fdc_a), .fdc_din(fdc_din), .fdc_rd(fdc_rd), .fdc_wr(fdc_wr), .fdc_in24(fdc_in24),
+	.fdc_ce(fdc_ce), .fdc_reset(fdc_reset), .fdc_dout(fdc_dout), .fdc_ready(fdc_ready),
 	.ce_pix(ce_pix), .rgb(rgb), .blank(blank), .hsync(hsync), .vsync(vsync), .hc(), .vc(),
 	.running(running), .cpu_addr(cpu_addr), .dbg_io_wr(dbg_io_wr), .dbg_io_rd(dbg_io_rd),
 	.dbg_dout(dbg_dout), .dbg_din(dbg_din), .dbg_m1(dbg_m1), .dbg_c1(dbg_c1),
@@ -68,18 +85,37 @@ assign gc_raw = sys.video.gc;
 wire aux_req, aux_we, aux_ack, l_req, l_we, l_ack, t_req, t_ack, tape_bit;
 wire [21:0] aux_addr, l_addr, t_addr;
 wire [7:0] aux_din, aux_dout, l_din;
-wire [3:0] acks;
+wire [5:0] acks;
+wire fdc_cs, fdc_rd, fdc_wr, fdc_in24, fdc_ce, fdc_reset, fdc_ready;
+wire [2:0] fdc_a;
+wire [7:0] fdc_din, fdc_dout;
+wire f0_req, f0_we, f0_ack, f1_req, f1_we, f1_ack;
+wire [21:0] f0_addr, f1_addr;
+wire [7:0] f0_din, f1_din;
+// the motor stops after 1 s here (3 on the board): shorter runs
+ocean_fdd #(.CLK_HZ(49152000), .MOTOR_S(1)) fdd (.clk(clk), .reset(fdc_reset), .ce(fdc_ce),
+	.cs(fdc_cs), .a(fdc_a), .din(fdc_din), .rd(fdc_rd), .wr(fdc_wr), .dout(fdc_dout), .in24(fdc_in24), .ready(fdc_ready),
+	.img_wp(img_wp), .sdc_img_mounted(sdc_img_mounted), .sdc_img_size(sdc_img_size), .sdc_rd(sdc_rd), .sdc_wr(sdc_wr),
+	.sdc_sector(sdc_sector), .sdc_busy(sdc_busy), .sdc_done(sdc_done), .sdc_error(1'b0), .sdc_slot(sdc_slot),
+	.sdc_byte_in_strobe(sdc_byte_in_strobe), .sdc_byte_addr(sdc_byte_addr), .sdc_byte_in_data(sdc_byte_in_data),
+	.sdc_byte_out_data(sdc_byte_out_data), .pause(file_active),
+	.a0_req(f0_req), .a0_we(f0_we), .a0_addr(f0_addr), .a0_din(f0_din), .a0_ack(f0_ack),
+	.a1_req(f1_req), .a1_we(f1_we), .a1_addr(f1_addr), .a1_din(f1_din), .a1_ack(f1_ack), .aux_dout(aux_dout),
+	.motor(fdd_motor), .mounted());
 ocean_loader loader (.clk(clk), .rom_active(1'b0), .rom_addr(22'd0), .rom_data(8'd0), .rom_wr(1'b0),
 	.file_active(file_active), .file_slot(8'd6), .file_addr(file_addr), .file_data(file_data), .file_wr(file_wr), .busy(),
 	.aux_req(l_req), .aux_we(l_we), .aux_addr(l_addr), .aux_din(l_din), .aux_ack(l_ack));
 ocean_tape #(.CLK_HZ(49152000)) tape (.clk(clk), .play(1'b0), .stop(1'b0),
 	.file_active(file_active), .file_addr(file_addr), .file_data(file_data), .file_wr(file_wr),
 	.aux_req(t_req), .aux_addr(t_addr), .aux_ack(t_ack), .aux_dout(aux_dout), .bit_out(tape_bit), .playing(tape_playing));
-ocean_aux arb (.clk(clk), .req({t_req, 1'b0, 1'b0, l_req}), .we({1'b0, 1'b0, 1'b0, l_we}),
-	.addr({t_addr, 22'd0, 22'd0, l_addr}), .din({8'd0, 8'd0, 8'd0, l_din}), .ack(acks),
+ocean_aux #(.N(6)) arb (.clk(clk), .req({f1_req, f0_req, t_req, 1'b0, 1'b0, l_req}),
+	.we({f1_we, f0_we, 1'b0, 1'b0, 1'b0, l_we}),
+	.addr({f1_addr, f0_addr, t_addr, 22'd0, 22'd0, l_addr}), .din({f1_din, f0_din, 8'd0, 8'd0, 8'd0, l_din}), .ack(acks),
 	.aux_req(aux_req), .aux_we(aux_we), .aux_addr(aux_addr), .aux_din(aux_din), .aux_ack(aux_ack));
 assign l_ack = acks[0];
 assign t_ack = acks[3];
+assign f0_ack = acks[4];
+assign f1_ack = acks[5];
 
 wire kb_strobe;
 wire [7:0] kb_pa;

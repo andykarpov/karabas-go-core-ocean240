@@ -6,13 +6,13 @@
 
  - one clock, clk = 49.152 MHz = 4 x the crystal of 12.288 MHz. ce_pix: the 12.288 MHz point; the CPU
    phases ce_f1 / ce_f2 once in 20 clocks (2.4576 MHz, the crystal / 5 as DD15); clk_pit 1.536 MHz (/32, DD42).
- - the CPU never waits (READY = 1): the video reads its own copy of the video RAM (ocean_vram, block RAM),
-   written together with the SRAM.
+ - the CPU waits only in IN 24 (the floppy controller, ocean_fdd: until DRQ or INTRQ); the video reads its own copy
+   of the video RAM (ocean_vram, block RAM), written together with the SRAM.
  - the memory in the SRAM of the board (ocean_sram): RAM 512 KB at 000000 (8 pages of 64 KB: C1 B1-B3),
    ROM0 (DD1, E000) at 080000, ROM1 (DD2, C000) at 088000, 32 KB each (27256; banks of 8 KB by C1 B6 / B7).
    C1 (DD17 port B): B0 32K (A15 | B0), B1-B3 page, B4 ~ENROM, B5 REST (ROM0 everywhere; the port reads FF
    after a reset: its pins are inputs with pull-ups), B6 / B7 the ROM bank.
- - the I/O decode of DD11 by A7-A5 (A15-A13 on the bus): 00 DD79 (user), 20 the floppy connector (free, reads FF),
+ - the I/O decode of DD11 by A7-A5 (A15-A13 on the bus): 00 DD79 (user), 20 the floppy controller (ocean_fdd, outside),
    40 DD78 (keyboard, blanks, tape in), 60 the 8253, 80 the 8259 (KF8259, MCS-80 CALL), A0 the 8251, C0 DD17, E0 DD67.
  - the 8259 inputs as the schematic: IR1 the keyboard strobe, IR2 RxRDY, IR4 counter 0; IR0, IR3, IR5-IR7 quiet.
 */
@@ -49,6 +49,18 @@ module ocean_system (
 	input  wire        tape_in,        // PB2 of DD78
 	output wire  [2:0] tape_dac,       // E2 C0-C2
 	output wire        bell,           // E2 C3
+
+	// the floppy controller at 20-3F (ocean_fdd): the bus of the CPU, its data and READY
+	output wire        fdc_cs,
+	output wire  [2:0] fdc_a,
+	output wire  [7:0] fdc_din,
+	output wire        fdc_rd,
+	output wire        fdc_wr,
+	output wire        fdc_in24,
+	output wire        fdc_ce,         // the CPU clock enable
+	output wire        fdc_reset,
+	input  wire  [7:0] fdc_dout,
+	input  wire        fdc_ready,
 
 	// the raster of the machine (768 x 320 points of 12.288 MHz)
 	output wire        ce_pix,
@@ -109,7 +121,7 @@ wire        cpu_int;
 vm80a_core cpu (
 	.pin_clk(clk), .pin_f1(ce_f1), .pin_f2(ce_f2), .pin_reset(cpu_reset),
 	.pin_a(addr), .pin_dout(cpu_o), .pin_din(cpu_i), .pin_aena(), .pin_dena(),
-	.pin_hold(1'b0), .pin_hlda(), .pin_ready(1'b1), .pin_wait(),
+	.pin_hold(1'b0), .pin_hlda(), .pin_ready(fdc_ready), .pin_wait(),
 	.pin_int(cpu_int), .pin_inte(cpu_inte), .pin_sync(cpu_sync), .pin_dbin(cpu_rd), .pin_wr_n(cpu_wr_n)
 );
 assign cpu_addr = addr;
@@ -141,6 +153,16 @@ assign dbg_m1 = cpu_sync & cpu_o[5];
 wire [2:0] io_grp = addr[7:5];
 wire sel00 = io_grp == 3'd0, sel40 = io_grp == 3'd2, sel60 = io_grp == 3'd3, sel80 = io_grp == 3'd4;
 wire selA0 = io_grp == 3'd5, selC0 = io_grp == 3'd6, selE0 = io_grp == 3'd7;
+wire sel20 = io_grp == 3'd1;
+
+assign fdc_cs = sel20;
+assign fdc_a = addr[2:0];
+assign fdc_din = cpu_o;
+assign fdc_rd = io_rd & sel20;
+assign fdc_wr = io_wr & sel20;
+assign fdc_in24 = st_inp & sel20 & (addr[2:0] == 3'd4);
+assign fdc_ce = ce_f1;
+assign fdc_reset = cpu_reset;
 
 // the PPIs write at the end of ~IOW (k580vv55 takes the falling edge of its we_n)
 wire [7:0] p00_o, p40_o, pC0_o, pE0_o;
@@ -225,7 +247,8 @@ always @(*) begin
 		3'd5: io_data = uart_o;
 		3'd6: io_data = pC0_o;
 		3'd7: io_data = pE0_o;
-		default: io_data = 8'hFF;      // 20-3F: the floppy connector, nothing there
+		3'd1: io_data = fdc_dout;
+		default: io_data = 8'hFF;
 	endcase
 end
 

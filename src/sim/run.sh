@@ -16,7 +16,7 @@ mkdir -p "$B"
 R=$S/rtl
 python3 -I "$S/tools/mkprom.py" "$U/Ocean_240_RT4_VC.bin" "$R/ocean/ocean_prom_vc.v"
 python3 -I "$S/tools/mkkbd.py" "$R/ocean/ocean_kbd_map.v"
-SRC="$H/tb_ocean.v $R/ocean/ocean_system.v $R/ocean/ocean_video.v $R/ocean/ocean_prom_vc.v $R/ocean/ocean_vv51.v $R/ocean/ocean_sram.v $R/ocean/ocean_kbd.v $R/ocean/ocean_kbd_map.v $R/ocean/ocean_scan2x.v $R/ocean/ocean_loader.v $R/ocean/ocean_aux.v $R/ocean/ocean_tape.v $R/ocean/k580vv55.v $R/ocean/k580vi53.v $R/vm80a/vm80a.v $R/kf8259/KF8259.v $R/kf8259/KF8259_Bus_Control_Logic.v $R/kf8259/KF8259_Control_Logic.v $R/kf8259/KF8259_In_Service.v $R/kf8259/KF8259_Interrupt_Request.v $R/kf8259/KF8259_Priority_Resolver.v"
+SRC="$H/tb_ocean.v $R/ocean/ocean_system.v $R/ocean/ocean_video.v $R/ocean/ocean_prom_vc.v $R/ocean/ocean_vv51.v $R/ocean/ocean_sram.v $R/ocean/ocean_kbd.v $R/ocean/ocean_kbd_map.v $R/ocean/ocean_scan2x.v $R/ocean/ocean_loader.v $R/ocean/ocean_aux.v $R/ocean/ocean_tape.v $R/ocean/ocean_fdd.v $R/ocean/ocean_fdd_cache.v $R/fdd/wd1793.v $S/../modules/rtl/mem/kg_spram.v $S/../modules/rtl/mem/kg_sdpram.v $R/ocean/k580vv55.v $R/ocean/k580vi53.v $R/vm80a/vm80a.v $R/kf8259/KF8259.v $R/kf8259/KF8259_Bus_Control_Logic.v $R/kf8259/KF8259_Control_Logic.v $R/kf8259/KF8259_In_Service.v $R/kf8259/KF8259_Interrupt_Request.v $R/kf8259/KF8259_Priority_Resolver.v"
 verilator --language 1364-2005 --cc --exe --build -j 8 -O3 --top-module tb_ocean -Mdir "$B/obj" -o sim_ocean \
 	-Wno-fatal -Wno-lint -Wno-style -Wno-MULTIDRIVEN -Wno-UNOPTFLAT -Wno-PINMISSING -Wno-PINNOTFOUND \
 	--x-initial fast -CFLAGS -O2 $SRC "$H/sim_ocean.cpp" > "$B/build.log" 2>&1 || { grep -E "Error|error" "$B/build.log" | head -30; exit 1; }
@@ -43,6 +43,20 @@ if [ -n "${CPM:-}" ]; then
 	[ "$n" -gt 500 ] || fail "CP/M: $n bytes on the screen"
 	f=$(ls "$B"/cpm_*.ppm | sort -t_ -k2 -n | tail -2 | head -1); python3 -I "$H/ppm2png.py" "$f" "$B/cpm.png"
 	echo "CP/M: $n bytes on the screen, $B/cpm.png"
+fi
+
+if [ -n "${FDD:-}" ]; then
+	echo "== floppy (~3 min): MONITOR+ + CP/M REL.7, SAVE 2 C:X.COM onto \$FDD (an .okd image, not in the repo; C: = side 1)"
+	T="--model 1 --rom0 $U/Ocean_240_ROM_E000_Turbo_monitor.bin --rom1 $U/Ocean_240_ROM_C000_CPM_with_floppy.bin --fdd 0:$FDD"
+	"$SIM" $T --fdd-out 0:"$B/fdd_w.okd" --ms 4300 --type "1500:SAVE 2 C:X.COM|" > "$B/fdd.txt" || err=1
+	grep "floppy:" "$B/fdd.txt"
+	python3 -I - "$FDD" "$B/fdd_w.okd" <<'PY' || fail "floppy: the write"
+import sys
+a = open(sys.argv[1], "rb").read(); b = open(sys.argv[2], "rb").read()
+d = sorted({i // 512 for i in range(len(a)) if a[i] != b[i]})
+print("floppy: sectors written:", d, "X.COM in the directory:", b.find(b"X       COM") >= 0)
+sys.exit(0 if d and b.find(b"X       COM") >= 0 else 1)
+PY
 fi
 
 echo "== video: frames against the schematic model (src/sim/ref, made by schem/run.sh; ref/README)"

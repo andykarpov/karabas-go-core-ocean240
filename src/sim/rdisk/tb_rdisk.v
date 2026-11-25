@@ -34,7 +34,7 @@ module tb_rdisk;
 		.sdc_byte_out_data(sdc_byte_out_data), .img_flush(8'd0),
 		.bk_mount(bk_mount), .bk_flushed(bk_flushed), .bk_size(bk_size), .bk_kind(bk_kind), .bk_result(bk_result));
 	wire [3:0] acks;
-	ocean_aux arb (.clk(clk), .req({1'b0, bk_req, mk_req, 1'b0}), .we({1'b0, bk_we, 1'b1, 1'b0}),
+	ocean_aux #(.N(4)) arb (.clk(clk), .req({1'b0, bk_req, mk_req, 1'b0}), .we({1'b0, bk_we, 1'b1, 1'b0}),
 		.addr({22'd0, bk_addr, mk_addr, 22'd0}), .din({8'd0, bk_din, mk_din, 8'd0}), .ack(acks),
 		.aux_req(aux_req), .aux_we(aux_we), .aux_addr(aux_addr), .aux_din(aux_din), .aux_ack(aux_ack));
 	assign mk_ack = acks[1];
