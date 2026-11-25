@@ -70,8 +70,10 @@ module k1533ie7(input p1,p4,p5,p9,p10,p11,p14,p15, output p2,p3,p6,p7,p12,p13);
 	always @(posedge p4) if (!p14 && p11 && p5) q <= q - 4'd1;
 	always @(p14 or p11 or d) if (p14) q <= 4'd0; else if (!p11) q <= d;
 	assign #`TF p3 = q[0]; assign #`TF p2 = q[1]; assign #`TF p6 = q[2]; assign #`TF p7 = q[3];
-	assign #`TG p12 = ~((q == 4'hF) & ~p5);
-	assign #`TG p13 = ~((q == 4'h0) & ~p4);
+	// ~CO / ~BO after the clock ~17 ns ('193 typ.), later than Q: VR -> ~VR (ТЛ2) -> EL of the video shifters
+	// must still be high at the falling edge of 6M (Q0) that ends the word, or the shifters never load
+	assign #15 p12 = ~((q == 4'hF) & ~p5);
+	assign #15 p13 = ~((q == 4'h0) & ~p4);
 endmodule
 
 // '295 4-bit shift register, 3-state: 1 SER, 2-5 A-D, 6 MODE (1 = load), 8 OC (1 = outputs on), 9 CLK (falling), 13..10 QA..QD
@@ -146,7 +148,8 @@ module ru7(input p1,p2,p3,p4,p5,p6,p7,p9,p10,p11,p12,p13,p15, output p14);
 	end
 	// late write (WE falls while CAS low): write, output stays off
 	always @(negedge p3) if (!p4 && !p15) begin mem[{row, a}] <= p2; oe <= 1'b0; end
-	always @(posedge p15) oe <= 1'b0;
+	// t_CAC ~ 60 ns; the output stays valid t_OFF ~ 30 ns after ~CAS rises (the video latches DD38-DD41 count on it)
+	always @(posedge p15) oe <= #30 1'b0;
 	assign #60 p14 = oe ? dout : 1'bz;
 endmodule
 
