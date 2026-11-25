@@ -1,7 +1,7 @@
 {
     "id": "ocean240",
     "name": "Ocean-240",
-    "build": "26112505",
+    "build": "26112508",
     "visible": true,
     "type": "osd",
     "order": 45,
@@ -31,17 +31,17 @@
     "boards": {
         "go": {
             "link": 2,
-            "build": "26112506",
+            "build": "26112508",
             "bitstream": "karabas_go.bin"
         },
         "mini": {
             "link": 2,
-            "build": "26112506",
+            "build": "26112508",
             "bitstream": "karabas_mini.bin"
         },
         "minig": {
             "link": 2,
-            "build": "26112505",
+            "build": "26112508",
             "bitstream": "karabas_minig.bin"
         }
     },
@@ -98,6 +98,22 @@
         {
             "type": "T",
             "name": "Tape stop"
+        },
+        {
+            "type": "F",
+            "name": "Floppy 1",
+            "slot": 4,
+            "extensions": ".okd",
+            "dir": "/ocean240",
+            "hotkey": "Menu+F7"
+        },
+        {
+            "type": "F",
+            "name": "Floppy 2",
+            "slot": 5,
+            "extensions": ".okd",
+            "dir": "/ocean240",
+            "hotkey": "Menu+F8"
         }
     ],
     "loader": {

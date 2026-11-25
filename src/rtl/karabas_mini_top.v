@@ -20,6 +20,9 @@
  + the ADC (PCM1808: the line in and the MIDI synth) -> PCM5102, HDMI; the peaks of the mix to the mcu; MIDI_TX idle
  (the Ocean has no MIDI). The 8251 talks to the USB-UART of the mcu (port 0) by bytes of its data register.
 
+ The floppy (ocean_fdd): the KR1818VG93 at 20-25 of MONITOR+ with two drives, the .okd images of the F items Floppy 1 /
+ 2 (slots 4 / 5) copied into the SRAM (090000 / 144000).
+
  The RAM disk (page 1, CP/M drive A:) is kept in <core dir>/saves/ramdisk.sav (ocean_rdisk, kg_bk_ram).
 
  Soft switches (the index of the item in the osd of core.json):
@@ -232,7 +235,10 @@ wire [7:0] uart_tx_data;
 wire matrix_cmd_wr;
 wire [23:0] matrix_cmd;
 
-// the RAM disk file (ocean_rdisk: kg_bk_ram, img slot 0) on the mounter of kg_mcu2
+// the mounter of kg_mcu2: the RAM disk file (ocean_rdisk: kg_bk_ram, img slot 0) and the floppy images (ocean_fdd:
+// the F items, slots 4 / 5); it takes the lowest slot first
+wire [7:0] img_wp, rd_sdc_rd, rd_sdc_wr, rd_sdc_out, fd_sdc_rd, fd_sdc_wr, fd_sdc_out;
+wire [31:0] rd_sdc_sector, fd_sdc_sector;
 wire [7:0] img_flush, sdc_img_mounted, sdc_rd, sdc_wr, sdc_byte_in_data, sdc_byte_out_data, bk_kind, bk_result;
 wire [63:0] sdc_img_size;
 wire [31:0] sdc_sector, bk_size;
@@ -245,8 +251,8 @@ kg_mcu2 #(
 	.SW_N(SW_N),
 	.CS_FILTER(3),
 	.ENABLE_OSD(1),
-	.ENABLE_IMG(1),      // ramdisk.sav of kg_bk_ram
-	.IMG_OUT_LATENCY(2), // the sector buffer of kg_bk_ram
+	.ENABLE_IMG(1),      // ramdisk.sav of kg_bk_ram, the floppy images
+	.IMG_OUT_LATENCY(2), // the sector buffers of kg_bk_ram and the VG93
 	.ENABLE_FT(1),
 	.ENABLE_SD2(1),
 	.ENABLE_PORTS(4'b0001),  // port 0: the USB serial port (the 8251)
@@ -283,7 +289,7 @@ kg_mcu2 #(
 	.SDC_BUSY(sdc_busy), .SDC_DONE(sdc_done), .SDC_ERROR(sdc_error), .SDC_SLOT(sdc_slot),
 	.SDC_BYTE_IN_STROBE(sdc_byte_in_strobe), .SDC_BYTE_ADDR(sdc_byte_addr),
 	.SDC_BYTE_IN_DATA(sdc_byte_in_data), .SDC_BYTE_OUT_DATA(sdc_byte_out_data),
-	.IMG_WP(), .IMG_PHYS_WR(), .IMG_PHYS(), .IMG_FLUSH(img_flush), .FDD_CHNG_WR(), .FDD_CHNG(),
+	.IMG_WP(img_wp), .IMG_PHYS_WR(), .IMG_PHYS(), .IMG_FLUSH(img_flush), .FDD_CHNG_WR(), .FDD_CHNG(),
 	.FDD_CHNG_REQ(1'b0), .FDD_CHNG_DS(2'd0), .IMG_ACTIVE(),
 	.BK_MOUNT(bk_mount), .BK_FLUSHED(bk_flushed), .BK_SLOT(3'd0), .BK_SIZE(bk_size),
 	.BK_KIND(bk_kind), .BK_RESULT(bk_result),
@@ -344,7 +350,8 @@ ocean_tape #(.CLK_HZ(49200000)) tape (
 	.aux_req(t_req), .aux_addr(t_addr), .aux_ack(t_ack), .aux_dout(aux_dout), .bit_out(tape_bit), .playing(tape_playing)
 );
 
-// the RAM disk on the card (ocean_rdisk) and the aux port of the SRAM (ocean_aux: loader, word, kg_bk_ram, tape)
+// the RAM disk on the card (ocean_rdisk), the floppy (ocean_fdd) and the aux port of the SRAM (ocean_aux: loader,
+// word, kg_bk_ram, tape, the two floppy caches)
 wire aux_req, aux_we, aux_ack, rd_hold, ram_wr;
 wire [21:0] aux_addr;
 wire [7:0] aux_din;
@@ -352,25 +359,50 @@ wire [18:0] ram_wr_a;
 wire mk_req, mk_ack, bk_req, bk_we, bk_ack;
 wire [21:0] mk_addr, bk_addr;
 wire [7:0] mk_din, bk_din;
-wire [3:0] acks;
-ocean_aux arb (.clk(clk_sys), .req({t_req, bk_req, mk_req, l_req}), .we({1'b0, bk_we, 1'b1, l_we}),
-	.addr({t_addr, bk_addr, mk_addr, l_addr}), .din({8'd0, bk_din, mk_din, l_din}), .ack(acks),
+wire f0_req, f0_we, f0_ack, f1_req, f1_we, f1_ack;
+wire [21:0] f0_addr, f1_addr;
+wire [7:0] f0_din, f1_din;
+wire [5:0] acks;
+ocean_aux #(.N(6)) arb (.clk(clk_sys), .req({f1_req, f0_req, t_req, bk_req, mk_req, l_req}),
+	.we({f1_we, f0_we, 1'b0, bk_we, 1'b1, l_we}),
+	.addr({f1_addr, f0_addr, t_addr, bk_addr, mk_addr, l_addr}), .din({f1_din, f0_din, 8'd0, bk_din, mk_din, l_din}), .ack(acks),
 	.aux_req(aux_req), .aux_we(aux_we), .aux_addr(aux_addr), .aux_din(aux_din), .aux_ack(aux_ack));
 assign l_ack = acks[0];
 assign mk_ack = acks[1];
 assign bk_ack = acks[2];
 assign t_ack = acks[3];
+assign f0_ack = acks[4];
+assign f1_ack = acks[5];
 ocean_rdisk rdisk (
 	.clk(clk_sys), .areset(areset), .model(sw_model), .ld_busy(ld_busy), .hold(rd_hold), .mounted(), .saving(),
 	.ram_wr(ram_wr), .ram_wr_a(ram_wr_a),
 	.mk_req(mk_req), .mk_addr(mk_addr), .mk_din(mk_din), .mk_ack(mk_ack),
 	.bk_req(bk_req), .bk_we(bk_we), .bk_addr(bk_addr), .bk_din(bk_din), .bk_ack(bk_ack), .aux_dout(aux_dout),
-	.sdc_img_mounted(sdc_img_mounted), .sdc_img_size(sdc_img_size), .sdc_rd(sdc_rd), .sdc_wr(sdc_wr),
-	.sdc_sector(sdc_sector), .sdc_busy(sdc_busy), .sdc_done(sdc_done), .sdc_error(sdc_error), .sdc_slot(sdc_slot),
+	.sdc_img_mounted(sdc_img_mounted), .sdc_img_size(sdc_img_size), .sdc_rd(rd_sdc_rd), .sdc_wr(rd_sdc_wr),
+	.sdc_sector(rd_sdc_sector), .sdc_busy(sdc_busy), .sdc_done(sdc_done), .sdc_error(sdc_error), .sdc_slot(sdc_slot),
 	.sdc_byte_in_strobe(sdc_byte_in_strobe), .sdc_byte_addr(sdc_byte_addr), .sdc_byte_in_data(sdc_byte_in_data),
-	.sdc_byte_out_data(sdc_byte_out_data), .img_flush(img_flush),
+	.sdc_byte_out_data(rd_sdc_out), .img_flush(img_flush),
 	.bk_mount(bk_mount), .bk_flushed(bk_flushed), .bk_size(bk_size), .bk_kind(bk_kind), .bk_result(bk_result)
 );
+
+wire fdc_cs, fdc_rd, fdc_wr, fdc_in24, fdc_ce, fdc_reset, fdc_ready;
+wire [2:0] fdc_a;
+wire [7:0] fdc_din, fdc_dout;
+ocean_fdd #(.CLK_HZ(49200000)) fdd (
+	.clk(clk_sys), .reset(fdc_reset), .ce(fdc_ce),
+	.cs(fdc_cs), .a(fdc_a), .din(fdc_din), .rd(fdc_rd), .wr(fdc_wr), .dout(fdc_dout), .in24(fdc_in24), .ready(fdc_ready),
+	.img_wp(img_wp), .sdc_img_mounted(sdc_img_mounted), .sdc_img_size(sdc_img_size), .sdc_rd(fd_sdc_rd), .sdc_wr(fd_sdc_wr),
+	.sdc_sector(fd_sdc_sector), .sdc_busy(sdc_busy), .sdc_done(sdc_done), .sdc_error(sdc_error), .sdc_slot(sdc_slot),
+	.sdc_byte_in_strobe(sdc_byte_in_strobe), .sdc_byte_addr(sdc_byte_addr), .sdc_byte_in_data(sdc_byte_in_data),
+	.sdc_byte_out_data(fd_sdc_out), .pause(ld_busy | tape_file),
+	.a0_req(f0_req), .a0_we(f0_we), .a0_addr(f0_addr), .a0_din(f0_din), .a0_ack(f0_ack),
+	.a1_req(f1_req), .a1_we(f1_we), .a1_addr(f1_addr), .a1_din(f1_din), .a1_ack(f1_ack), .aux_dout(aux_dout),
+	.motor(), .mounted()
+);
+assign sdc_rd = rd_sdc_rd | fd_sdc_rd;
+assign sdc_wr = rd_sdc_wr | fd_sdc_wr;
+assign sdc_sector = (rd_sdc_rd[0] | rd_sdc_wr[0]) ? rd_sdc_sector : fd_sdc_sector;
+assign sdc_byte_out_data = (sdc_slot == 3'd0) ? rd_sdc_out : fd_sdc_out;
 
 // the keyboard
 wire kb_strobe, kb_f12;
@@ -411,7 +443,7 @@ wire tape_in_r = tape_playing ? tape_bit : tape_pin;   // the .wav while it play
 
 wire [9:0] hc;
 wire [8:0] vc;
-wire [2:0] rgb;
+wire [2:0] rgb_pt, rgb_bg;
 wire ce_pix, bell, tape_out;
 
 ocean_system sys (
@@ -423,7 +455,9 @@ ocean_system sys (
 	.uart_tx_wr(uart_tx_wr), .uart_tx_data(uart_tx_data), .uart_rx_wr(uart_rx_wr), .uart_rx_data(uart_rx_data),
 	.uart_rx_ready(uart_rx_ready),
 	.tape_out(tape_out), .tape_in(tape_in_r), .tape_dac(), .bell(bell),
-	.ce_pix(ce_pix), .rgb(rgb), .blank(), .hsync(), .vsync(), .hc(hc), .vc(vc),
+	.fdc_cs(fdc_cs), .fdc_a(fdc_a), .fdc_din(fdc_din), .fdc_rd(fdc_rd), .fdc_wr(fdc_wr), .fdc_in24(fdc_in24),
+	.fdc_ce(fdc_ce), .fdc_reset(fdc_reset), .fdc_dout(fdc_dout), .fdc_ready(fdc_ready),
+	.ce_pix(ce_pix), .rgb(), .rgb_pt(rgb_pt), .rgb_bg(rgb_bg), .blank(), .hsync(), .vsync(), .hc(hc), .vc(vc),
 	.running(), .cpu_addr(), .dbg_io_wr(), .dbg_io_rd(), .dbg_dout(), .dbg_din(), .dbg_m1(), .dbg_c1(),
 	.ram_wr(ram_wr), .ram_wr_a(ram_wr_a),
 	.MA(MA), .MD(MD), .MWR_N(MWR_N)
@@ -435,7 +469,7 @@ assign TAPE_OUT = tape_out;
 wire [23:0] s2_rgb;
 wire s2_hs, s2_vs, s2_de;
 ocean_scan2x s2x (
-	.clk(clk_sys), .ce_pix(ce_pix), .hc(hc), .vc(vc), .rgb_i(rgb), .colour_mpss(sw_mpss),
+	.clk(clk_sys), .ce_pix(ce_pix), .hc(hc), .vc(vc), .pt_i(rgb_pt), .bg_i(rgb_bg), .colour_mpss(sw_mpss),
 	.rgb(s2_rgb), .hs(s2_hs), .vs(s2_vs), .de(s2_de)
 );
 

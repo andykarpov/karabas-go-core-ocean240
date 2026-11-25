@@ -33,6 +33,8 @@ module ocean_video (
 
 	output reg         ce_pix = 1'b0,
 	output reg   [2:0] rgb = 3'd0,
+	output reg   [2:0] pt = 3'd0,      // the PROM part of rgb (R D3, G D1, B D2)
+	output reg   [2:0] bg = 3'd0,      // the background part (FL & BLANC): through VD1-VD3 and 5K1, dim on the screen
 	output reg         blank = 1'b1,
 	output reg         hsync = 1'b0,
 	output reg         vsync = 1'b0,
@@ -90,6 +92,8 @@ wire blanc = prom_d[0];
 always @(posedge clk) if (ce_pix) begin
 	// the point on the screen (the PROM and the output stage; DD66 is fast, one register here)
 	rgb <= {prom_d[3] | (vctl[3] & blanc), prom_d[1] | (vctl[5] & blanc), prom_d[2] | (vctl[4] & blanc)};
+	pt <= {prom_d[3], prom_d[1], prom_d[2]};
+	bg <= {vctl[3] & blanc, vctl[5] & blanc, vctl[4] & blanc};
 	blank <= gk | gc_d;
 	hsync <= ~hs_n;
 	vsync <= gk & rc[4] & ~rc[5];

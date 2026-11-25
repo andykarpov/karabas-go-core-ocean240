@@ -17,8 +17,12 @@
  0..271 of the machine): the screen (lines 0..255) at output y 32..543, its 512 points (hc 15..526) at x 64..575.
 
  colour_mpss: the wiring of MPSS 1986/4 for the outputs of the colour PROM (D1 R, D2 G, D3 B) instead of the one of
- the replica (R D3, G D1, B D2): the machine gives rgb = {D3 | bg, D1 | bg, D2 | bg} of the replica, so MPSS is
- R = G_rep, G = B_rep, B = R_rep (docs/HARDWARE.md).
+ the replica (R D3, G D1, B D2): the machine gives pt = {D3, D1, D2} of the replica, so MPSS is R = G_rep, G = B_rep,
+ B = R_rep (docs/HARDWARE.md); the background (FL1-FL3) is wired the same in both.
+
+ The levels: a PROM output drives its emitter follower through 1K6 (full level); the background comes through a diode
+ and 5K1 into the same base, so it is a dim colour (some 10-15 % of the full level by the resistors; Emu80 draws it
+ at 37 %): BG_LEVEL. A point over the background is the full level.
 */
 
 module ocean_scan2x (
@@ -26,7 +30,8 @@ module ocean_scan2x (
 	input  wire        ce_pix,      // ocean_video: hc / vc / rgb change after it
 	input  wire  [9:0] hc,
 	input  wire  [8:0] vc,
-	input  wire  [2:0] rgb_i,       // R G B of the replica wiring
+	input  wire  [2:0] pt_i,        // R G B of the PROM, the replica wiring
+	input  wire  [2:0] bg_i,        // R G B of the background
 	input  wire        colour_mpss,
 
 	output reg  [23:0] rgb = 24'd0,
@@ -42,14 +47,19 @@ localparam V_ACTIVE = 576, V_SYNC = 581, V_SYNC_END = 586;
 reg [1:0] ph = 2'd0;
 always @(posedge clk) ph <= ce_pix ? 2'd0 : ph + 1'd1;
 
-wire [2:0] c = colour_mpss ? {rgb_i[1], rgb_i[0], rgb_i[2]} : rgb_i;
+wire [2:0] cp = colour_mpss ? {pt_i[1], pt_i[0], pt_i[2]} : pt_i;
+wire [5:0] c = {cp, bg_i};
+localparam [7:0] BG_LEVEL = 8'h40;
+function [7:0] lvl(input p, input b);
+	lvl = p ? 8'hFF : b ? BG_LEVEL : 8'h00;
+endfunction
 
 // write: at ce_pix the value of the last point
 wire [9:0] wx = (hc >= 10'd719) ? hc - 10'd719 : hc + 10'd49;
 reg bank = 1'b0;
 reg [8:0] dl = 9'd0;          // the display line being written
 reg [8:0] dl_show = 9'd0;     // the one shown
-reg [2:0] lbuf [0:2047];
+reg [5:0] lbuf [0:2047];
 always @(posedge clk) begin
 	if (ce_pix) begin
 		if (wx == 10'd0) begin
@@ -70,7 +80,7 @@ wire [9:0] vy0 = {1'b0, shown} + 10'd16;
 wire [8:0] vy = (vy0 >= 10'd320) ? vy0 - 10'd320 : vy0[8:0];
 wire [9:0] oy = {vy, half};
 
-reg  [2:0] p = 3'd0;
+reg  [5:0] p = 6'd0;
 reg  [9:0] ox_d = 10'd0, oy_d = 10'd0;
 reg        ph_d = 1'b0;
 always @(posedge clk) begin
@@ -81,7 +91,7 @@ always @(posedge clk) begin
 		de <= (ox_d < H_ACTIVE) && (oy_d < V_ACTIVE);
 		hs <= ~((ox_d >= H_SYNC) && (ox_d < H_SYNC_END));
 		vs <= ~((oy_d >= V_SYNC) && (oy_d < V_SYNC_END));
-		rgb <= ((ox_d < H_ACTIVE) && (oy_d < V_ACTIVE)) ? {{8{p[2]}}, {8{p[1]}}, {8{p[0]}}} : 24'd0;
+		rgb <= ((ox_d < H_ACTIVE) && (oy_d < V_ACTIVE)) ? {lvl(p[5], p[2]), lvl(p[4], p[1]), lvl(p[3], p[0])} : 24'd0;
 	end
 end
 
