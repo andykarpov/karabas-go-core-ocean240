@@ -3,7 +3,7 @@
 
   {e0, scancode} -> {valid, ascii (unshifted, shifted: the 240/7 monitor), row 0..10 / column 0..7 (the positional
   keyboard of HARDWARE MONITOR+, the matrix of MAME okean240a X0..X10)}. A US PC layout gives the ASCII.
-  The arrows of the 240/7 monitor (08 / 18 / 19 / 1A) are a guess: checked against its ROM in the backlog.
+  The arrows of the 240/7 monitor: 08 left, 18 right, 19 up, 1A down (its screen driver at E7DE-E861 takes them).
   mkkbd.py src/rtl/ocean/ocean_kbd_map.v
 """
 import sys
