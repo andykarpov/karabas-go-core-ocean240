@@ -1,0 +1,5 @@
+# the files of the Ocean as they are (CP/M text has CR LF)
+software/** -text
+*.okd binary
+*.COM binary
+*.BAS -text
