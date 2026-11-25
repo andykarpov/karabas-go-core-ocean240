@@ -12,7 +12,7 @@ A core of the Soviet personal computer Ocean-240.2 («Океан-240.2», D. A. 
 
 The core file `src/ocean240.kg` is one file for all three boards; all the ROMs are inside it.
 
-Status: checked on Mini G (both CP/M, both keyboards, the RAM disk kept on the card, the test program of MPSS with the tape loop, the serial port). The floppy works in simulation, not yet checked on a board. The Go and Mini builds have not been run on a board yet.
+Status: checked on Mini G (both CP/M, both keyboards, the RAM disk kept on the card, the test program of MPSS with the tape loop, the serial port). The floppy reads and writes `.okd` images (checked on Mini G). The Go and Mini builds have not been run on a board yet.
 
 Contents: [Getting started](#getting-started) · [Models](#models) · [OSD menu](#osd-menu) · [Keys](#keys) · [Files](#files) · [The serial port](#the-serial-port) · [Where to get software](#where-to-get-software) · [How the core works](#how-the-core-works) · [Building](#building) · [Tests](#tests) · [Licence and sources](#licence-and-sources)
 
