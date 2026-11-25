@@ -9,6 +9,13 @@ module tb_ocean (
 	input  wire  [7:0] ps2_code,       // a PS/2 set 2 byte to ocean_kbd
 	input  wire        ps2_wr,
 	input  wire        colour_mpss,
+	// an FL file of slot 6 (the tape .wav) as the mcu sends it, the tape line out
+	input  wire        file_active,
+	input  wire [31:0] file_addr,
+	input  wire  [7:0] file_data,
+	input  wire        file_wr,
+	output wire        tape_out,
+	output wire        tape_playing,
 	output wire [23:0] o_rgb,          // ocean_scan2x (an output pixel every two clocks: o_ce)
 	output wire        o_hs,
 	output wire        o_vs,
@@ -46,16 +53,33 @@ wire [1:0] MWR_N;
 
 ocean_system sys (
 	.clk(clk), .reset(reset),
-	.aux_req(1'b0), .aux_we(1'b0), .aux_addr(22'd0), .aux_din(8'd0), .aux_ack(), .aux_dout(),
+	.aux_req(aux_req), .aux_we(aux_we), .aux_addr(aux_addr), .aux_din(aux_din), .aux_ack(aux_ack), .aux_dout(aux_dout),
 	.model(model), .kb_strobe(kb_strobe), .kb_pa(kb_pa), .kb_pc(kb_pc), .kb_mods(kb_mods),
 	.rxd(rxd), .txd(txd), .uart_tx_wr(), .uart_tx_data(), .uart_rx_wr(1'b0), .uart_rx_data(8'd0), .uart_rx_ready(),
-	.tape_out(), .tape_in(1'b0), .tape_dac(), .bell(bell),
+	.tape_out(tape_out), .tape_in(tape_bit), .tape_dac(), .bell(bell),
 	.ce_pix(ce_pix), .rgb(rgb), .blank(blank), .hsync(hsync), .vsync(vsync), .hc(), .vc(),
 	.running(running), .cpu_addr(cpu_addr), .dbg_io_wr(dbg_io_wr), .dbg_io_rd(dbg_io_rd),
 	.dbg_dout(dbg_dout), .dbg_din(dbg_din), .dbg_m1(dbg_m1), .dbg_c1(dbg_c1),
 	.MA(MA), .MD(MD), .MWR_N(MWR_N)
 );
 assign gc_raw = sys.video.gc;
+
+// the loader (the tape file), the tape player and the aux port as in the tops
+wire aux_req, aux_we, aux_ack, l_req, l_we, l_ack, t_req, t_ack, tape_bit;
+wire [21:0] aux_addr, l_addr, t_addr;
+wire [7:0] aux_din, aux_dout, l_din;
+wire [3:0] acks;
+ocean_loader loader (.clk(clk), .rom_active(1'b0), .rom_addr(22'd0), .rom_data(8'd0), .rom_wr(1'b0),
+	.file_active(file_active), .file_slot(8'd6), .file_addr(file_addr), .file_data(file_data), .file_wr(file_wr), .busy(),
+	.aux_req(l_req), .aux_we(l_we), .aux_addr(l_addr), .aux_din(l_din), .aux_ack(l_ack));
+ocean_tape #(.CLK_HZ(49152000)) tape (.clk(clk), .play(1'b0), .stop(1'b0),
+	.file_active(file_active), .file_addr(file_addr), .file_data(file_data), .file_wr(file_wr),
+	.aux_req(t_req), .aux_addr(t_addr), .aux_ack(t_ack), .aux_dout(aux_dout), .bit_out(tape_bit), .playing(tape_playing));
+ocean_aux arb (.clk(clk), .req({t_req, 1'b0, 1'b0, l_req}), .we({1'b0, 1'b0, 1'b0, l_we}),
+	.addr({t_addr, 22'd0, 22'd0, l_addr}), .din({8'd0, 8'd0, 8'd0, l_din}), .ack(acks),
+	.aux_req(aux_req), .aux_we(aux_we), .aux_addr(aux_addr), .aux_din(aux_din), .aux_ack(aux_ack));
+assign l_ack = acks[0];
+assign t_ack = acks[3];
 
 wire kb_strobe;
 wire [7:0] kb_pa;

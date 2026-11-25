@@ -45,7 +45,7 @@ module ocean_system (
 	input  wire        uart_rx_wr,     // a pulse: a byte received (into RxRDY)
 	input  wire  [7:0] uart_rx_data,
 	output wire        uart_rx_ready,  // no byte waits in the receiver
-	output wire        tape_out,       // E2 C2 (the monitors write 03 / 04)
+	output wire        tape_out,       // the tape line (E2 C0-C2 through the DAC and the RC)
 	input  wire        tape_in,        // PB2 of DD78
 	output wire  [2:0] tape_dac,       // E2 C0-C2
 	output wire        bell,           // E2 C3
@@ -68,6 +68,8 @@ module ocean_system (
 	output wire  [7:0] dbg_din,
 	output wire        dbg_m1,
 	output wire  [7:0] dbg_c1,
+	output wire        ram_wr,         // a pulse: the CPU writes the RAM at ram_wr_a (the backup of the RAM disk)
+	output wire [18:0] ram_wr_a,
 
 	output wire [20:0] MA,
 	inout  wire [15:0] MD,
@@ -174,7 +176,18 @@ k580vv55 dd67 (.reset(cpu_reset), .clk_sys(clk), .addr(addr[1:0]), .we_n(~(io_wr
 	.ipa(8'hFF), .opa(e1_pa), .ipb(8'hFF), .opb(e1_pb), .ipc(8'hFF), .opc(e1_pc));
 assign dbg_c1 = c1_pb;
 assign tape_dac = e1_pc[2:0];
-assign tape_out = e1_pc[2];
+// the tape out: a 3-bit DAC (PC0 5K1, PC1 10K, PC2 20K: weights 4 / 2 / 1) through a differentiating RC (MPSS 1987/3):
+// the line follows the changes of the level, so the bit is 1 after a rise and 0 after a fall (the monitors write
+// 03 / 04, the test ROM toggles PC1)
+wire [2:0] dac_lvl = {e1_pc[0], e1_pc[1], e1_pc[2]};
+reg  [2:0] dac_d = 3'd0;
+reg        tape_bit = 1'b0;
+always @(posedge clk) begin
+	dac_d <= dac_lvl;
+	if (dac_lvl > dac_d) tape_bit <= 1'b1;
+	else if (dac_lvl < dac_d) tape_bit <= 1'b0;
+end
+assign tape_out = tape_bit;
 assign bell = e1_pc[3];
 
 // 8253: CLK0 = CLK1 = 1.536 MHz, gates 0 / 1 high; counter 2 is the user's (GATE2 = ~TIM_EN = 0 on the board)
@@ -257,8 +270,10 @@ end
 // (the video address: A15 = A14 = 1, A16 = VSU, A17 = A18 = 0); the loaders write it too (aux, RAM part)
 wire vram_cpu = ram_we & (ram_a[18:17] == 2'b00) & (ram_a[15:14] == 2'b11);
 wire vram_aux = aux_req & aux_we & (aux_addr[21:17] == 5'd0) & (aux_addr[15:14] == 2'b11);
-reg  we_d = 1'b0;
-always @(posedge clk) we_d <= vram_cpu;
+reg  we_d = 1'b0, ram_we_d = 1'b0;
+always @(posedge clk) begin we_d <= vram_cpu; ram_we_d <= ram_we; end
+assign ram_wr = ram_we & ~ram_we_d;
+assign ram_wr_a = ram_a;
 wire        vw = (vram_cpu & ~we_d) | (vram_aux & aux_ack);
 wire        vw_p = vram_aux ? aux_addr[16] : ram_a[16];
 wire [13:0] vw_a = vram_aux ? aux_addr[13:0] : ram_a[13:0];
