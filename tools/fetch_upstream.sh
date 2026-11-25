@@ -2,7 +2,8 @@
 # Fetch the Ocean-240 reference sources into upstream/ (git-ignored), pinned commits.
 #  - romychs/ocean-240.2 (BSD-3): KiCad schematic of the 240.2 replica, ROM dumps, the MPSS articles (.odt) — the base
 #  - AndrejChoo/Ocean240_on_FPGA (GPL-3): a functional FPGA version (Cyclone 10LP) — reference for ports / palettes only
-#  - alemorf/retro_computers (no licence file; reference only, nothing copied): Ocean_240 only — MPSS scans, ROM sources, JS emulator, fdd images
+#  - alemorf/retro_computers (no licence file; reference, its fdd images and programs copied into software/ with the
+#    user's leave 2026-11-25): Ocean_240 only — MPSS scans, ROM sources, JS emulator, fdd images
 #  - MAME src/mame/ussr/okean240.cpp (BSD-3): one file, the ROM hashes and the keyboard tables
 set -eu
 cd "$(dirname "$0")/.."

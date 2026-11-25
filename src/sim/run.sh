@@ -46,7 +46,8 @@ if [ -n "${CPM:-}" ]; then
 fi
 
 if [ -n "${FDD:-}" ]; then
-	echo "== floppy (~3 min): MONITOR+ + CP/M REL.7, SAVE 2 C:X.COM onto \$FDD (an .okd image, not in the repo; C: = side 1)"
+	[ "$FDD" != 1 ] || FDD=$S/../software/fdd/disk1.okd
+	echo "== floppy (~3 min): MONITOR+ + CP/M REL.7, SAVE 2 C:X.COM onto \$FDD (an .okd image; FDD=1: software/fdd/disk1.okd; C: = side 1)"
 	T="--model 1 --rom0 $U/Ocean_240_ROM_E000_Turbo_monitor.bin --rom1 $U/Ocean_240_ROM_C000_CPM_with_floppy.bin --fdd 0:$FDD"
 	"$SIM" $T --fdd-out 0:"$B/fdd_w.okd" --ms 4300 --type "1500:SAVE 2 C:X.COM|" > "$B/fdd.txt" || err=1
 	grep "floppy:" "$B/fdd.txt"

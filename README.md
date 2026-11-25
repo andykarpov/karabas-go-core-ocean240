@@ -82,6 +82,7 @@ The KR580VV51 of the Ocean is connected to the USB serial port of the board (por
 ## Where to get software
 
 - [romychs/ocean-240.2](https://github.com/romychs/ocean-240.2): the replica of the 240.2 by Roman Boykov: the schematic, the ROMs, the articles of MPSS, CP/M sources.
+- `software/` of this repo: floppy images `.okd` with programs and games (`software/README.md`).
 - [alemorf/retro_computers](https://github.com/alemorf/retro_computers), directory `Ocean_240`: scans of MPSS, the BIOS sources, floppy images `.okd` (`software/fdd`), a JS emulator of the 240.2.
 - The emulators: MAME (`okean240`, `okean240a`), [Emu80](https://emu80.org/) (its `.okd` floppy images are those of the core).
 
@@ -106,7 +107,7 @@ ISE 14.7. `cd src && make` builds all three boards and `ocean240.kg`; `make mini
 
 ## Tests
 
-`src/sim/run.sh` (Verilator, about a minute): the test program of MPSS (`TEST 1 PASSED`, the timer and interrupt test 8), the video frames against the frames of the schematic model (`src/sim/ref`), the RAM disk unit test. `CPM=1` adds both CP/M up to `A>` and `DIR` typed through the keyboard controller; `TAPE=1` the tape loop (test 5 into a `.wav`, test 6 reads it); `FDD=<an .okd image>` CP/M REL.7 writing a file onto C: of it (some 3 minutes). `src/sim/schem/run.sh` runs the schematic model itself.
+`src/sim/run.sh` (Verilator, about a minute): the test program of MPSS (`TEST 1 PASSED`, the timer and interrupt test 8), the video frames against the frames of the schematic model (`src/sim/ref`), the RAM disk unit test. `CPM=1` adds both CP/M up to `A>` and `DIR` typed through the keyboard controller; `TAPE=1` the tape loop (test 5 into a `.wav`, test 6 reads it); `FDD=1` (`software/fdd/disk1.okd`) or `FDD=<an .okd image>` CP/M REL.7 writing a file onto C: of it (some 3 minutes). `src/sim/schem/run.sh` runs the schematic model itself.
 
 ## Licence and sources
 
