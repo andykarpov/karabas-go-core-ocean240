@@ -2,11 +2,12 @@
 """Compare two frames of the raster (768 x 320 PPM of tb_schem / sim_ocean): the picture only.
 The grey (40) of the blanks is drawn from the raw GC / GK by both testbenches and is not compared; the shorter
 frame bounds the compare (a frame ends at the next VS).  ppmcmp.py A.ppm B.ppm  -> exit 1 on a difference."""
+import gzip
 import sys
 
 
 def load(f):
-    d = open(f, 'rb').read().split(b'\n', 3)[3]
+    d = (gzip.open(f) if f.endswith('.gz') else open(f, 'rb')).read().split(b'\n', 3)[3]
     return bytes(0 if v == 40 else v for v in d)
 
 

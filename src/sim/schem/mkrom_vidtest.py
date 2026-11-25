@@ -9,7 +9,9 @@ so the frames show the window of BLNK too.
     C001 = F0, C101 = 0F   row 1, column 0
     C202 = FF              row 2, column 1, byte A8 = 0
     C303 = FF              row 3, column 1, byte A8 = 1
-  mkrom_vidtest.py OUT.bin
+  mkrom_vidtest.py OUT.bin [scroll]
+  scroll: more bytes (columns 0, 1, 15, 30, 31, lines at both ends) and the scrollers on: C0 = 05 (VS), C2 = 0B
+  (HS[7:3] = 1 word, SB = 3): the words read in the blank, the wrap of the lines and the point shift.
 """
 import sys
 
@@ -23,11 +25,24 @@ code = [0xC3, 0x03, 0xE0, 0xF3,
         0x3E, 0x80, 0xD3, 0xC3, 0xD3, 0xE3,
         0x3E, 0x93, 0xD3, 0x43,
         0x3E, 0x01, 0xD3, 0xC1]
-for a, v in [(0x4000, 0x01), (0x4100, 0x80), (0x4001, 0xF0), (0x4101, 0x0F), (0x4202, 0xFF), (0x4303, 0xFF)]:
+scroll = len(sys.argv) > 2 and sys.argv[2] == 'scroll'
+pat = [(0x4000, 0x01), (0x4100, 0x80), (0x4001, 0xF0), (0x4101, 0x0F), (0x4202, 0xFF), (0x4303, 0xFF)]
+if scroll:
+    def at(col, row, hi, v):
+        return (0x4000 + col * 0x200 + hi * 0x100 + row, v)
+    for r in range(8):
+        pat.append(at(0, r + 8, 0, 0xFF))
+        pat.append(at(15, r, 0, 0xAA))
+        pat.append(at(31, r, 0, 0x0F))
+        pat.append(at(31, r, 1, 0xF0))
+        pat.append(at(30, r + 4, 1, 0xFF))
+    for r in (0, 1, 2, 3, 252, 253, 254, 255):
+        pat.append(at(1, r, 0, 0x3C))
+for a, v in pat:
     code += lxi_mvi(a, v)
 code += [0x3E, 0x00, 0xD3, 0xC1,
-         0x3E, 0x07, 0xD3, 0xC2,
-         0x3E, 0x00, 0xD3, 0xC0,
+         0x3E, 0x0B if scroll else 0x07, 0xD3, 0xC2,
+         0x3E, 0x05 if scroll else 0x00, 0xD3, 0xC0,
          0x3E, 0x08, 0xD3, 0xE1]   # mono, palette 0, background FL1 (red): the visible window shows
 
 
