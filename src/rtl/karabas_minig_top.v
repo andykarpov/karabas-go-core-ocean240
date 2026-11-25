@@ -230,7 +230,8 @@ kg_mcu2 #(
 	.ENABLE_IMG(0),
 	.ENABLE_FT(1),
 	.ENABLE_SD2(1),
-	.ENABLE_PORTS(4'b0001)   // port 0: the USB serial port (the 8251)
+	.ENABLE_PORTS(4'b0001),  // port 0: the USB serial port (the 8251)
+	.ENABLE_AUX(1)           // MATRIX_CMD: the audio peaks
 ) mcu (
 	.CLK(clk_sys),
 	.N_RESET(~areset),
