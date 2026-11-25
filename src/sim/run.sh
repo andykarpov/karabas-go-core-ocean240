@@ -2,8 +2,8 @@
 # The Ocean-240.2 machine (src/rtl/ocean) in simulation (verilator). Builds sim_ocean into src/sim/build.
 #  1. the test ROM of MPSS (E000_Tests, beeps shortened as in src/sim/schem): "TEST 1 PASSED" on the 8251 at 4800 baud,
 #     a key on the terminal, then the tests that follow.
-#  2. the video bit order (schem/mkrom_vidtest.py): the mono and the colour frames are byte for byte the frames of
-#     the schematic model when those are in src/sim/schem/build (vt_0.ppm / vt_2.ppm, made by schem/run.sh).
+#  2. the video (schem/mkrom_vidtest.py, plain and with the scrollers): the mono and the colour frames are point for
+#     point the frames of the schematic model kept in src/sim/ref.
 #  3. the 240/7 monitor with CP/M: its banner on the screen.
 set -eu
 H=$(cd "$(dirname "$0")" && pwd)
@@ -42,13 +42,14 @@ if [ -n "${CPM:-}" ]; then
 	echo "CP/M: $n bytes on the screen, $B/cpm.png"
 fi
 
-echo "== video bit order"
-python3 -I "$H/schem/mkrom_vidtest.py" "$B/vidtest.bin"
-"$SIM" --rom0 "$B/vidtest.bin" --ms 65 --frames "$B/vt" > /dev/null || err=1
-for n in 0 2; do
-	if [ -f "$H/schem/build/vt_$n.ppm" ]; then
-		python3 -I "$H/ppmcmp.py" "$B/vt_$n.ppm" "$H/schem/build/vt_$n.ppm" && echo "frame $n = schematic" || fail "frame $n differs from the schematic model"
-	else echo "frame $n: no schematic frame (run schem/run.sh build/vidtest.bin +ms=65 +frames=build/vt)"; fi
+echo "== video: frames against the schematic model (src/sim/ref, made by schem/run.sh; ref/README)"
+for t in vidtest:vt vidscroll:vs; do
+	rom=${t%%:*}; p=${t##*:}
+	python3 -I "$H/schem/mkrom_vidtest.py" "$B/$rom.bin" $([ "$rom" = vidscroll ] && echo scroll)
+	"$SIM" --rom0 "$B/$rom.bin" --ms 65 --frames "$B/$p" > /dev/null || err=1
+	for n in 0 2; do
+		python3 -I "$H/ppmcmp.py" "$B/${p}_$n.ppm" "$H/ref/${p}_$n.ppm.gz" && echo "$rom frame $n = schematic" || fail "$rom frame $n differs from the schematic model"
+	done
 done
 
 [ $err = 0 ] && echo "sim ok" || echo "sim FAILED"

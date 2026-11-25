@@ -66,7 +66,8 @@ always @(posedge clk) begin
 	if (vw &  vw_addr[8]) bank1[widx] <= vw_data;
 end
 
-wire [4:0] sc = wc[4:0] + hs_reg[7:3];
+// DD20 + DD23: SC = {C5 | GC, C4..C1} + HS[7:3] (DD22.1 ORs GC into C5): the words read in the blank are columns 16-31
+wire [4:0] sc = {wc[4] | wc[5], wc[3:0]} + hs_reg[7:3];
 wire [7:0] sk = rc[7:0] + vs_reg;
 reg  [13:0] ridx = 14'd0;
 reg  [7:0] md = 8'd0, db = 8'd0;
