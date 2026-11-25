@@ -4,7 +4,9 @@
 #     a key on the terminal, then the tests that follow.
 #  2. the video (schem/mkrom_vidtest.py, plain and with the scrollers): the mono and the colour frames are point for
 #     point the frames of the schematic model kept in src/sim/ref.
-#  3. the 240/7 monitor with CP/M: its banner on the screen.
+#  3. CPM=1: the 240/7 monitor with CP/M: A>, DIR typed through ocean_kbd.
+#  4. TAPE=1: the tape out of test 5 played back into test 6 (all "+").
+#  5. ocean_rdisk (the RAM disk file) with a model of the mounter (Icarus).
 set -eu
 H=$(cd "$(dirname "$0")" && pwd)
 S=$(cd "$H/.." && pwd)
@@ -14,7 +16,7 @@ mkdir -p "$B"
 R=$S/rtl
 python3 -I "$S/tools/mkprom.py" "$U/Ocean_240_RT4_VC.bin" "$R/ocean/ocean_prom_vc.v"
 python3 -I "$S/tools/mkkbd.py" "$R/ocean/ocean_kbd_map.v"
-SRC="$H/tb_ocean.v $R/ocean/ocean_system.v $R/ocean/ocean_video.v $R/ocean/ocean_prom_vc.v $R/ocean/ocean_vv51.v $R/ocean/ocean_sram.v $R/ocean/ocean_kbd.v $R/ocean/ocean_kbd_map.v $R/ocean/ocean_scan2x.v $R/ocean/k580vv55.v $R/ocean/k580vi53.v $R/vm80a/vm80a.v $R/kf8259/KF8259.v $R/kf8259/KF8259_Bus_Control_Logic.v $R/kf8259/KF8259_Control_Logic.v $R/kf8259/KF8259_In_Service.v $R/kf8259/KF8259_Interrupt_Request.v $R/kf8259/KF8259_Priority_Resolver.v"
+SRC="$H/tb_ocean.v $R/ocean/ocean_system.v $R/ocean/ocean_video.v $R/ocean/ocean_prom_vc.v $R/ocean/ocean_vv51.v $R/ocean/ocean_sram.v $R/ocean/ocean_kbd.v $R/ocean/ocean_kbd_map.v $R/ocean/ocean_scan2x.v $R/ocean/ocean_loader.v $R/ocean/ocean_aux.v $R/ocean/ocean_tape.v $R/ocean/k580vv55.v $R/ocean/k580vi53.v $R/vm80a/vm80a.v $R/kf8259/KF8259.v $R/kf8259/KF8259_Bus_Control_Logic.v $R/kf8259/KF8259_Control_Logic.v $R/kf8259/KF8259_In_Service.v $R/kf8259/KF8259_Interrupt_Request.v $R/kf8259/KF8259_Priority_Resolver.v"
 verilator --language 1364-2005 --cc --exe --build -j 8 -O3 --top-module tb_ocean -Mdir "$B/obj" -o sim_ocean \
 	-Wno-fatal -Wno-lint -Wno-style -Wno-MULTIDRIVEN -Wno-UNOPTFLAT -Wno-PINMISSING -Wno-PINNOTFOUND \
 	--x-initial fast -CFLAGS -O2 $SRC "$H/sim_ocean.cpp" > "$B/build.log" 2>&1 || { grep -E "Error|error" "$B/build.log" | head -30; exit 1; }
@@ -52,6 +54,21 @@ for t in vidtest:vt vidscroll:vs; do
 		python3 -I "$H/ppmcmp.py" "$B/${p}_$n.ppm" "$H/ref/${p}_$n.ppm.gz" && echo "$rom frame $n = schematic" || fail "$rom frame $n differs from the schematic model"
 	done
 done
+
+if [ -n "${TAPE:-}" ]; then
+	echo "== tape (~1 min): test 5 writes its signal (TAPE_OUT -> .wav), test 6 reads it back through ocean_tape (FL .wav)"
+	T="$U/Ocean_240_ROM_E000_Tests.bin:4fa=01,522=01,4e7=01,4e8=00"
+	"$SIM" --rom0 "$T,065=9a,066=e2" --ms 700 --rxkey 45:20 --wav-out "$B/t5.wav" > /dev/null || err=1
+	"$SIM" --rom0 "$T,065=d3,066=e2" --ms 1300 --rxkey 45:20 --wav-in 50:"$B/t5.wav" > "$B/t6.txt" || err=1
+	n=$(grep -o "+" "$B/t6.txt" | wc -l); m=$(grep -o -- "-" "$B/t6.txt" | wc -l)
+	echo "tape: $n +, $m -"
+	[ "$n" -gt 100 ] && [ "$m" -lt 5 ] || fail "tape: $n +, $m -"
+fi
+
+echo "== the RAM disk on the card (rdisk/tb_rdisk.v: ocean_rdisk + kg_bk_ram, a model of the mounter)"
+iverilog -g2012 -o "$B/tb_rdisk.vvp" "$H/rdisk/tb_rdisk.v" "$R/ocean/ocean_rdisk.v" "$R/ocean/ocean_aux.v" "$S/../modules/rtl/mcu/kg_bk_ram.v" "$S/../modules/rtl/mem/kg_sdpram.v"
+vvp -n "$B/tb_rdisk.vvp" | tail -2 | tee "$B/rdisk.txt"
+grep -q "rdisk ok" "$B/rdisk.txt" || fail "RAM disk"
 
 [ $err = 0 ] && echo "sim ok" || echo "sim FAILED"
 exit $err

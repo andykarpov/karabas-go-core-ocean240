@@ -1,7 +1,7 @@
 {
     "id": "ocean240",
     "name": "Ocean-240",
-    "build": "26112503",
+    "build": "26112505",
     "visible": true,
     "type": "osd",
     "order": 45,
@@ -31,7 +31,7 @@
     "boards": {
         "minig": {
             "link": 2,
-            "build": "26112503",
+            "build": "26112505",
             "bitstream": "karabas_minig.bin"
         }
     },
@@ -72,6 +72,26 @@
             "type": "T",
             "name": "Reset",
             "hotkey": "F12"
+        },
+        {
+            "type": "FL",
+            "name": "Tape",
+            "slot": 6,
+            "extensions": ".wav",
+            "dir": "/ocean240",
+            "hotkey": "Menu+F4"
+        },
+        {
+            "type": "T",
+            "name": "Tape play"
+        },
+        {
+            "type": "T",
+            "name": "Tape stop"
         }
-    ]
+    ],
+    "loader": {
+        "dir": "/ocean240",
+        "save_name": "ramdisk"
+    }
 }

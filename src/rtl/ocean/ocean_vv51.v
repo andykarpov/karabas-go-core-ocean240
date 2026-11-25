@@ -57,6 +57,7 @@ reg       tbusy = 1'b0;
 reg [6:0] rcnt = 7'd0;
 reg [3:0] rbits = 4'd0;
 reg       rbusy = 1'b0;
+reg       rstop = 1'b0;   // after the data bits: wait for the stop bit (the line high) before a new start bit
 reg [7:0] rsh = 8'd0;
 reg [1:0] rxd_s = 2'b11;
 
@@ -69,7 +70,7 @@ always @(posedge clk) begin
 	tx_wr <= 1'b0;
 	if (rx_wr & cmd[2]) begin rxbuf <= rx_data; rxfull <= 1'b1; end
 	if (reset) begin
-		mode_next <= 1'b1; cmd <= 8'd0; txfull <= 1'b0; rxfull <= 1'b0; tbusy <= 1'b0; rbusy <= 1'b0; txd <= 1'b1;
+		mode_next <= 1'b1; cmd <= 8'd0; txfull <= 1'b0; rxfull <= 1'b0; tbusy <= 1'b0; rbusy <= 1'b0; rstop <= 1'b0; txd <= 1'b1;
 	end else begin
 		// a write at the end of ~IOW
 		if (wr_d & ~(wr & cs)) begin
@@ -112,7 +113,9 @@ always @(posedge clk) begin
 
 		// receiver: the middle of each bit
 		if (rxc_rise & cmd[2]) begin
-			if (!rbusy) begin
+			if (rstop) begin
+				if (rxd_s[1]) rstop <= 1'b0;
+			end else if (!rbusy) begin
 				if (!rxd_s[1]) begin rbusy <= 1'b1; rcnt <= 7'd0; rbits <= 4'd0; end
 			end else begin
 				rcnt <= rcnt + 1'd1;
@@ -122,6 +125,7 @@ always @(posedge clk) begin
 					rbits <= rbits + 1'd1;
 					if (rbits == nbits - 1'd1) begin
 						rbusy <= 1'b0;
+						rstop <= 1'b1;
 						rxbuf <= {rxd_s[1], rsh[7:1]} >> (4'd8 - nbits);
 						rxfull <= 1'b1;
 					end

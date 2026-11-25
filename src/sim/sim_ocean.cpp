@@ -12,6 +12,10 @@
 //   --expect-tx TEXT     fail unless the terminal output has TEXT
 //   --peek ADDR          print the SRAM byte at the end (hex address)
 //   --iotrace N          print the first N port accesses (OUT always, IN except the polls of 41 / 80 / A1)
+//   --load ADDR:FILE     a file into the SRAM at ADDR (hex) before the start (a RAM disk image: 010000)
+//   --poke ADDR:XX       a byte into the SRAM before the start
+//   --wav-in MS:FILE     a .wav as the FL item of the tape (slot 6) at MS, a byte every 400 clocks; it plays at its end
+//   --wav-out FILE       the tape line out (TAPE_OUT) as a .wav, 8 bits, 48 kHz
 //   --vram               at the end: the non-zero bytes of the video RAM (C000-FFFF of pages 0 / 1)
 #include "Vtb_ocean.h"
 #include "verilated.h"
@@ -72,8 +76,11 @@ int main(int argc, char **argv) {
 	double ms = 20;
 	std::vector<Ev> rx, kb;
 	std::vector<long> peeks;
+	std::vector<std::pair<long, unsigned char>> pre;
 	int iotrace = 0, vram = 0, model = 0, mpss = 0;
-	const char *frame2x = 0;
+	const char *frame2x = 0, *wav_out = 0;
+	std::vector<unsigned char> wav, wout;
+	long long wav_t = -1;
 	for (int i = 1; i < argc; i++) {
 		std::string a(argv[i]);
 		if (a == "--rom0") rom0 = argv[++i];
@@ -101,10 +108,32 @@ int main(int argc, char **argv) {
 			}
 		}
 		else if (a == "--model") model = atoi(argv[++i]);
+		else if (a == "--wav-out") wav_out = argv[++i];
+		else if (a == "--wav-in") {
+			const char *v = argv[++i];
+			wav_t = (long long)(atof(v) * CLK_HZ / 1000.0);
+			FILE *f = fopen(strchr(v, ':') + 1, "rb");
+			if (!f) { fprintf(stderr, "no wav\n"); exit(2); }
+			int ch; while ((ch = fgetc(f)) != EOF) wav.push_back((unsigned char)ch);
+			fclose(f);
+		}
+		else if (a == "--load" || a == "--poke") {
+			const char *v = argv[++i];
+			long ad = strtol(v, 0, 16);
+			const char *rest = strchr(v, ':') + 1;
+			if (a == "--poke") pre.push_back({ad, (unsigned char)strtol(rest, 0, 16)});
+			else {
+				FILE *f = fopen(rest, "rb");
+				if (!f) { fprintf(stderr, "no %s\n", rest); exit(2); }
+				int ch; while ((ch = fgetc(f)) != EOF) pre.push_back({ad++, (unsigned char)ch});
+				fclose(f);
+			}
+		}
 		else if (a == "--mpss") mpss = 1;
 		else if (a == "--frame2x") frame2x = argv[++i];
 	}
 	// preload the SRAM: ROM0 / ROM1 into the images the model takes (ocean_system: 080000 + 2000 * image), 8 KB each
+	t->file_active = 0; t->file_wr = 0;
 	t->reset = 1; t->rxd = 1; t->ps2_wr = 0; t->ps2_code = 0; t->pl_we = 0; t->model = model; t->colour_mpss = mpss;
 	auto tick = [&]() { t->clk = 0; t->eval(); t->clk = 1; t->eval(); };
 	for (int r = 0; r < 2; r++) {
@@ -119,6 +148,7 @@ int main(int argc, char **argv) {
 			tick();
 		}
 	}
+	for (auto &p : pre) { t->pl_we = 1; t->pl_addr = p.first; t->pl_data = p.second; tick(); }
 	t->pl_we = 0;
 	for (int i = 0; i < 100; i++) tick();
 	t->reset = 0;
@@ -145,6 +175,16 @@ int main(int argc, char **argv) {
 			else t->rxd = 1;
 			if (k >= 11) { tx_start = -1; printf("\n[sim] sent %02x at %.1f ms\n", tx_byte, rx[rx_i].t * 1000.0 / CLK_HZ); rx_i++; }
 		}
+		// the tape file as the mcu sends an FL item, then the line out as samples
+		t->file_wr = 0;
+		if (wav_t >= 0 && c >= wav_t) {
+			long long k = (c - wav_t) / 400;
+			if (k < (long long)wav.size()) {
+				t->file_active = 1;
+				if ((c - wav_t) % 400 == 0) { t->file_addr = k; t->file_data = wav[k]; t->file_wr = 1; }
+			} else if (t->file_active) { t->file_active = 0; printf("[sim] tape file loaded at %.1f ms\n", c * 1000.0 / CLK_HZ); }
+		}
+		if (wav_out && c % 1024 == 0) wout.push_back(t->tape_out ? 0xC0 : 0x40);
 		// the PS/2 bytes into ocean_kbd
 		t->ps2_wr = 0;
 		if (kb_i < kb.size() && c >= kb[kb_i].t) { t->ps2_code = kb[kb_i].b; t->ps2_wr = 1; kb_i++; }
@@ -152,6 +192,14 @@ int main(int argc, char **argv) {
 		if (frame2x && t->o_ce) {
 			if (!t->o_vs && last_ovs) {
 				if (f2) fclose(f2);
+	if (wav_out) {
+		FILE *f = fopen(wav_out, "wb");
+		unsigned n = wout.size(), rate = 48000;
+		unsigned char h[44] = {'R','I','F','F',0,0,0,0,'W','A','V','E','f','m','t',' ',16,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,1,0,8,0,'d','a','t','a',0,0,0,0};
+		unsigned r = 36 + n; memcpy(h + 4, &r, 4); memcpy(h + 24, &rate, 4); memcpy(h + 28, &rate, 4); memcpy(h + 40, &n, 4);
+		fwrite(h, 1, 44, f); fwrite(wout.data(), 1, n, f); fclose(f);
+		printf("[sim] tape out: %u samples\n", n);
+	}
 				char fn[512]; snprintf(fn, sizeof fn, "%s_%d.ppm", frame2x, n2++);
 				f2 = fopen(fn, "wb"); fprintf(f2, "P6\n640 576\n255\n"); n2px = 0;
 			}
@@ -199,6 +247,14 @@ int main(int argc, char **argv) {
 	}
 	if (fd) fclose(fd);
 	if (f2) fclose(f2);
+	if (wav_out) {
+		FILE *f = fopen(wav_out, "wb");
+		unsigned n = wout.size(), rate = 48000;
+		unsigned char h[44] = {'R','I','F','F',0,0,0,0,'W','A','V','E','f','m','t',' ',16,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,1,0,8,0,'d','a','t','a',0,0,0,0};
+		unsigned r = 36 + n; memcpy(h + 4, &r, 4); memcpy(h + 24, &rate, 4); memcpy(h + 28, &rate, 4); memcpy(h + 40, &n, 4);
+		fwrite(h, 1, 44, f); fwrite(wout.data(), 1, n, f); fclose(f);
+		printf("[sim] tape out: %u samples\n", n);
+	}
 	printf("\n[sim] %.1f ms, PC %04x, C1 %02x\n", ms, t->cpu_addr, t->dbg_c1);
 	if (vram) for (int pg = 0; pg < 2; pg++) {
 		int nz = 0;

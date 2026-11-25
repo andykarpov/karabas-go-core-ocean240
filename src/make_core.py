@@ -565,14 +565,21 @@ def kg2_loader(cfg, strings):
             return None
         loader = { k2: cfg[k1] for k1, k2 in (("dir", "dir"), ("extensions", "exts"), ("filename", "file"),
                                                ("save_dir", "save_dir")) if k1 in cfg }
-    unknown = set(loader) - { "dir", "exts", "extensions", "file", "filename", "autoload", "save_dir" }
+    unknown = set(loader) - { "dir", "exts", "extensions", "file", "filename", "autoload", "save_dir", "save_name" }
     if unknown:
         fail("loader: unknown keys %s" % ", ".join(sorted(unknown)))
     files = kg2_files("loader file", loader.get("file", loader.get("filename")))
-    head = struct.pack('<HHHHBBH', 12, strings.ref(kg2_path("loader dir", loader.get("dir", ""))),
+    # karabas (ocean240): "save_name" -> the 14-byte record (firmware kg2_format.h KG2_LOADER_SIZE_NAME): the name
+    # of the backup RAM files of the core (<save dir>/<save_name>.sav), whatever file was loaded
+    save_name = loader.get("save_name")
+    size = 14 if save_name else 12
+    head = struct.pack('<HHHHBBH', size, strings.ref(kg2_path("loader dir", loader.get("dir", ""))),
                        strings.ref(kg2_exts("loader", loader.get("exts", loader.get("extensions")))),
                        strings.ref(kg2_path("loader save_dir", loader.get("save_dir", ""))),
-                       1 if loader.get("autoload", True) else 0, len(files), 12)
+                       1 if loader.get("autoload", True) else 0, len(files), size)
+    if save_name:
+        kg2_ascii("loader save_name", save_name, 32)
+        head += struct.pack('<H', strings.ref(save_name))
     return head + b''.join(struct.pack('<H', strings.ref(f)) for f in files)
 
 def kg2_option_list(where, item):
