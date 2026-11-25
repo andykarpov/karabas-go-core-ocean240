@@ -7,6 +7,8 @@
 //   --kb MS:XX           a key of the 240/7 keyboard (7-bit code) at MS
 //   --expect-tx TEXT     fail unless the terminal output has TEXT
 //   --peek ADDR          print the SRAM byte at the end (hex address)
+//   --iotrace N          print the first N port accesses (OUT always, IN except the polls of 41 / 80 / A1)
+//   --vram               at the end: the non-zero bytes of the video RAM (C000-FFFF of pages 0 / 1)
 #include "Vtb_ocean.h"
 #include "verilated.h"
 #include <cstdio>
@@ -51,6 +53,7 @@ int main(int argc, char **argv) {
 	double ms = 20;
 	std::vector<Ev> rx, kb;
 	std::vector<long> peeks;
+	int iotrace = 0, vram = 0;
 	for (int i = 1; i < argc; i++) {
 		std::string a(argv[i]);
 		if (a == "--rom0") rom0 = argv[++i];
@@ -59,6 +62,8 @@ int main(int argc, char **argv) {
 		else if (a == "--frames") frames = argv[++i];
 		else if (a == "--expect-tx") expect = argv[++i];
 		else if (a == "--peek") peeks.push_back(strtol(argv[++i], 0, 16));
+		else if (a == "--iotrace") iotrace = atoi(argv[++i]);
+		else if (a == "--vram") vram = 1;
 		else if (a == "--rxkey" || a == "--kb") {
 			const char *v = argv[++i];
 			Ev e; e.t = (long long)(atof(v) * CLK_HZ / 1000.0); e.b = (int)strtol(strchr(v, ':') + 1, 0, 16);
@@ -92,6 +97,7 @@ int main(int argc, char **argv) {
 	size_t kb_i = 0;
 	// frames
 	FILE *fd = 0; int nfr = 0, x = 0, y = 0, last_vs = 0, last_hs = 0;
+	int last_iow = 0, last_ior = 0;
 	for (long long c = 0; c < total; c++) {
 		tick();
 		// RS-232 to the machine
@@ -120,6 +126,12 @@ int main(int argc, char **argv) {
 			}
 		}
 		last_txd = txd;
+		if (iotrace > 0) {
+			int p = t->cpu_addr & 0xFF;
+			if (t->dbg_io_wr && !last_iow) { printf("%.3f ms OUT %02x,%02x\n", c * 1000.0 / CLK_HZ, p, t->dbg_dout); iotrace--; }
+			if (!t->dbg_io_rd && last_ior && p != 0x41 && p != 0x80 && p != 0xA1) { printf("%.3f ms IN  %02x = %02x\n", c * 1000.0 / CLK_HZ, p, t->dbg_din); iotrace--; }
+			last_iow = t->dbg_io_wr; last_ior = t->dbg_io_rd;
+		}
 		// frames: a file per rising vsync, x from the end of hsync, samples at ce_pix (as tb_schem)
 		if (frames) {
 			if (t->vsync && !last_vs) {
@@ -138,6 +150,11 @@ int main(int argc, char **argv) {
 	}
 	if (fd) fclose(fd);
 	printf("\n[sim] %.1f ms, PC %04x, C1 %02x\n", ms, t->cpu_addr, t->dbg_c1);
+	if (vram) for (int pg = 0; pg < 2; pg++) {
+		int nz = 0;
+		for (long a = 0xC000; a < 0x10000; a++) { t->dbg_addr = pg * 0x10000 + a; t->eval(); if (t->dbg_q) nz++; }
+		printf("video RAM page %d: %d non-zero bytes\n", pg, nz);
+	}
 	for (long a : peeks) { t->dbg_addr = a; t->eval(); printf("peek %06lx = %02x\n", a, t->dbg_q); }
 	int ok = 1;
 	if (expect && term.find(expect) == std::string::npos) { printf("FAIL: no \"%s\" on the terminal\n", expect); ok = 0; }
